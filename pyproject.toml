@@ -1,7 +1,7 @@
 [project]
-name = "egmof-cleanup"
+name = "egmof"
 version = "0.1.0"
-description = "Add your description here"
+description = "efficient generative model for meetal-organic frameworks (MOFs)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -18,3 +18,13 @@ dependencies = [
     "torch>=2.10.0",
     "tqdm>=4.67.3",
 ]
+
+[build-system]
+requires = ["setuptools>=69.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

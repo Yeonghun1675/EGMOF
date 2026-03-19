@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 
 EGMOF_old/
+test*
+
 
 # C extensions
 *.so

@@ -1,0 +1,18 @@
+model:
+  in_channels: 200
+  timestep: 1000
+  lr: 0.0001
+  dim: 200
+  dim_mults: [1, 2]
+  condition: numeric   # one of: null, numeric, binary, class
+  out_channels: null
+  num_classes: 0       # used only when condition: class
+  cond_dim: 0          # used only when condition: class
+  scaler_mode: standard
+  scaler_value: null   # should be dict from datamodule stats, or null to disable scaling
+
+datamodule:
+  batch_size: 64
+  num_workers: 4
+  dataset_cls: csv     # one of: csv, text, json
+  task: null
