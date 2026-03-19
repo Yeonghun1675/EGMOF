@@ -3,6 +3,8 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+EGMOF_old/
+
 # C extensions
 *.so
 
