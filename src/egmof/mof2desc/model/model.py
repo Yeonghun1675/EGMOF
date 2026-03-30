@@ -6,9 +6,14 @@ import pandas as pd
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-import pytorch_lightning as pl
+import lightning as pl
 from transformers import get_cosine_schedule_with_warmup, AutoModel
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, accuracy_score
+from sklearn.metrics import (
+    r2_score,
+    mean_squared_error,
+    mean_absolute_error,
+    accuracy_score,
+)
 from .dataset import PAD_TOKEN, SEP_TOKEN, MOF_ENCODE_DICT, MOF_DECODE_DICT
 
 
@@ -17,15 +22,15 @@ class MOF2Desc(pl.LightningModule):
         super().__init__()
         self.config = config
         self.save_hyperparameters()
-        self.lr = config['learning_rate']
+        self.lr = config["learning_rate"]
         self.scaler = scaler
-        self.warmup_step = config['warmup_steps']
+        self.warmup_step = config["warmup_steps"]
         self.vocab_size = max(MOF_ENCODE_DICT.values()) + 1
         self.model = MOFEncoder(
             vocab_size=self.vocab_size,
-            target_dim=config['desc_dim'],
+            target_dim=config["desc_dim"],
             pad_token_id=PAD_TOKEN,
-            max_len=config['max_token_len'],
+            max_len=config.get("max_token_len", 512),
         )
         self.pad_token = PAD_TOKEN
         self.validation_outputs = []
@@ -64,15 +69,19 @@ class MOF2Desc(pl.LightningModule):
         outputs = self.validation_outputs
         total_samples = sum(x["batch_size"] for x in outputs)
         avg_loss = sum(x["val_loss"] for x in outputs) / total_samples
-        y_true = torch.concat([x['y_true'] for x in outputs]).cpu().numpy()
-        y_pred = torch.concat([x['y_pred'] for x in outputs]).detach().cpu().numpy()
+        y_true = torch.concat([x["y_true"] for x in outputs]).cpu().numpy()
+        y_pred = torch.concat([x["y_pred"] for x in outputs]).detach().cpu().numpy()
         y_true_origin = self.scaler.decode(y_true)
         y_pred_origin = self.scaler.decode(y_pred)
         r2 = r2_score(y_true_origin, y_pred_origin)
         mae = mean_absolute_error(y_true_origin, y_pred_origin)
-        self.log("val/avg_val_loss", avg_loss, sync_dist=True, on_epoch=True, on_step=False)
+        self.log(
+            "val/avg_val_loss", avg_loss, sync_dist=True, on_epoch=True, on_step=False
+        )
         self.log("val/avg_val_mae", mae, sync_dist=True, on_epoch=True, on_step=False)
-        self.log("val/avg_val_r2score", r2, sync_dist=True, on_epoch=True, on_step=False)
+        self.log(
+            "val/avg_val_r2score", r2, sync_dist=True, on_epoch=True, on_step=False
+        )
 
     def on_test_start(self):
         self.test_outputs = []
@@ -96,26 +105,31 @@ class MOF2Desc(pl.LightningModule):
         outputs = self.test_outputs
         total_samples = sum(x["batch_size"] for x in outputs)
         avg_loss = sum(x["test_loss"] for x in outputs) / total_samples
-        y_true = torch.concat([x['y_true'] for x in outputs]).cpu().numpy()
-        y_pred = torch.concat([x['y_pred'] for x in outputs]).detach().cpu().numpy()
+        y_true = torch.concat([x["y_true"] for x in outputs]).cpu().numpy()
+        y_pred = torch.concat([x["y_pred"] for x in outputs]).detach().cpu().numpy()
         y_true_origin = np.round(self.scaler.decode(y_true), 6)
         y_pred_origin = np.round(self.scaler.decode(y_pred), 6)
         r2 = r2_score(y_true_origin, y_pred_origin)
         mae = mean_absolute_error(y_true_origin, y_pred_origin)
-        self.log("test/avg_test_loss", avg_loss, sync_dist=True, on_epoch=True, on_step=False)
+        self.log(
+            "test/avg_test_loss", avg_loss, sync_dist=True, on_epoch=True, on_step=False
+        )
         self.log("test/avg_test_mae", mae, sync_dist=True, on_epoch=True, on_step=False)
-        self.log("test/avg_test_r2score", r2, sync_dist=True, on_epoch=True, on_step=False)
+        self.log(
+            "test/avg_test_r2score", r2, sync_dist=True, on_epoch=True, on_step=False
+        )
 
         feature_name_dir = self.config.get(
-            'feature_name_dir',
-            f'{__mof2desc_dir__}/../desc2mof/data/feature_name.txt'
+            "feature_name_dir", f"{__mof2desc_dir__}/../desc2mof/data/feature_name.txt"
         )
-        with open(feature_name_dir, 'r') as g:
+        with open(feature_name_dir, "r") as g:
             feature_names = [line.strip() for line in g.readlines()]
-        r2_raw = r2_score(y_true_origin, y_pred_origin, multioutput='raw_values')
-        mae_raw = mean_absolute_error(y_true_origin, y_pred_origin, multioutput='raw_values')
+        r2_raw = r2_score(y_true_origin, y_pred_origin, multioutput="raw_values")
+        mae_raw = mean_absolute_error(
+            y_true_origin, y_pred_origin, multioutput="raw_values"
+        )
         results_df = pd.DataFrame(np.array([mae_raw, r2_raw]), columns=feature_names)
-        results_df.insert(0, column='metric', value=['MAE', 'r2'])
+        results_df.insert(0, column="metric", value=["MAE", "r2"])
         results_df.to_csv(f"{self.config['exp_name']}_test_results.csv", index=None)
 
         save_true = self.config.get("save_true", False)
@@ -147,9 +161,7 @@ class MOF2Desc(pl.LightningModule):
         else:
             warmup_steps = self.warmup_step
         scheduler = get_cosine_schedule_with_warmup(
-            optimizer,
-            num_warmup_steps=warmup_steps,
-            num_training_steps=max_steps
+            optimizer, num_warmup_steps=warmup_steps, num_training_steps=max_steps
         )
         sched = {"scheduler": scheduler, "interval": "step"}
         return ([optimizer], [sched])
@@ -207,19 +219,25 @@ class MOFEncoder(nn.Module):
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor):
         B, T = input_ids.shape
         if T > self.max_len:
-            input_ids = input_ids[:, :self.max_len]
-            attention_mask = attention_mask[:, :self.max_len]
+            input_ids = input_ids[:, : self.max_len]
+            attention_mask = attention_mask[:, : self.max_len]
             T = self.max_len
 
         x = self.tok_emb(input_ids)
-        src_key_padding_mask = (attention_mask == 0)
+        src_key_padding_mask = attention_mask == 0
 
         if self.use_cls_token:
             cls = self.cls.expand(B, 1, -1)
             x = torch.cat([cls, x], dim=1)
-            cls_pad = torch.zeros(B, 1, dtype=torch.bool, device=src_key_padding_mask.device)
+            cls_pad = torch.zeros(
+                B, 1, dtype=torch.bool, device=src_key_padding_mask.device
+            )
             src_key_padding_mask = torch.cat([cls_pad, src_key_padding_mask], dim=1)
-            pos_ids = torch.arange(T + 1, device=input_ids.device).unsqueeze(0).expand(B, T + 1)
+            pos_ids = (
+                torch.arange(T + 1, device=input_ids.device)
+                .unsqueeze(0)
+                .expand(B, T + 1)
+            )
         else:
             pos_ids = torch.arange(T, device=input_ids.device).unsqueeze(0).expand(B, T)
 

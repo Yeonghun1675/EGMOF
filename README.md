@@ -52,23 +52,31 @@ trainer:
 from egmof.egmof import EGMOF
 
 egmof = EGMOF(
-    target="CO2_working_capacity",
-    data_path="/path/to/your/data.csv",
+    target="target",              # Column name in your CSV (or "co2_working_capacity", etc.)
+    data_path="/path/to/data/",   # Directory containing train.csv, val.csv, test.csv
     prop2desc_model_config_path="config_prop2desc_model.yaml",
-    prop2desc_training_config_path="config_prop2desc_model.yaml",  # same file or separate
+    prop2desc_training_config_path="config_prop2desc_model.yaml",
 )
 egmof.train()
 # Checkpoint saved automatically by Lightning Trainer
 ```
 
-**Expected data format** (`data.csv`):
+**Expected data format** (`train.csv`, `val.csv`, `test.csv`):
 ```csv
-CO2_working_capacity,feature_1,feature_2,...,feature_183
+target,feature_1,feature_2,...,feature_183
 150.5,0.12,0.34,...,0.89
 ```
 
-- First column: target property
-- Remaining columns: descriptor features (183 dimensions)
+- `target`: Column name for your property (e.g., `co2_working_capacity`, `target`, etc.)
+- **Descriptor columns**: Must match exactly the 183 features in `src/egmof/data/descriptor_name.json`
+
+CSV 파일들을 `data_path` 디렉토리에 넣으세요:
+```
+/path/to/data/
+├── train.csv
+├── val.csv
+└── test.csv
+```
 
 ### 2. Generation with prop2desc checkpoint
 
@@ -76,10 +84,10 @@ CO2_working_capacity,feature_1,feature_2,...,feature_183
 from egmof.egmof import EGMOF
 
 egmof = EGMOF(
-    target="CO2_working_capacity",
-    data_path="/path/to/data.csv",
+
     prop2desc_model_config_path="config_prop2desc_model.yaml",
     overrides={"model.ckpt_path": "/path/to/prop2desc.ckpt"},
+    skmodel_mean_std_dir = 'config/h2uptake/18463.yaml'
 )
 
 # Load models
@@ -94,28 +102,50 @@ results = egmof.generate(
     temperature=1.0,
     wmse_target=0.5,   # WMSE threshold for filtering
 )
-# results: DataFrame with columns [filename, wmse, pred_value, ...]
+# results: DataFrame with columns [filename, wmse, pred_value (optional)]
+# pred_value column only exists if skmodel_ckpt_dir or skmodel_mean_std_dir is provided
 ```
 
-### 3. Full Generation Pipeline (requires all checkpoints)
+### 3. Full Generation Pipeline
+
+**Default paths**: All desc2mof and mof2desc paths are set to default values:
+- `desc2mof_ckpt_dir`: `checkpoints/desc2mof/desc2mof_best.ckpt`
+- `desc2mof_config_path`: `config/desc2mof_training_config.yaml`
+- `desc2mof_mean_dir`: `src/egmof/desc2mof/data/mean_all.csv`
+- `desc2mof_std_dir`: `src/egmof/desc2mof/data/std_all.csv`
+- `desc2mof_feature_name_dir`: `src/egmof/desc2mof/data/feature_name.txt`
+- `mof2desc_ckpt_dir`: `checkpoints/mof2desc/mof2desc_best.ckpt`
+- `mof2desc_config_path`: `config/mof2desc_training_config.yaml`
+
+If checkpoints don't exist, `egmof.load()` will raise an error with download URL.
+
+**Pre-configured yaml files** with feature_importances:
+- `config/h2uptake/`: H2 uptake models (1000, 2200, 5000, 10000, 18463)
+- `config/various_dataset/`: Various gas uptake models (CO2, CH4, N2, etc.)
 
 ```python
+# Minimal usage (uses all default paths)
 egmof = EGMOF(
-    target="CO2_working_capacity",
-    data_path="/path/to/data.csv",
     prop2desc_model_config_path="config_prop2desc_model.yaml",
     overrides={"model.ckpt_path": "/path/to/prop2desc.ckpt"},
-    # desc2mof
+)
+
+egmof.load()  # Raises error if default checkpoints not found
+
+# Override default paths if needed
+egmof = EGMOF(
+    prop2desc_model_config_path="config_prop2desc_model.yaml",
+    overrides={"model.ckpt_path": "/path/to/prop2desc.ckpt"},
     desc2mof_ckpt_dir="/path/to/desc2mof.ckpt",
-    desc2mof_config_path="/path/to/desc2mof_config.yaml",
-    desc2mof_mean_dir="data/mean.csv",
-    desc2mof_std_dir="data/std.csv",
-    desc2mof_feature_name_dir="data/feature_names.txt",
-    # mof2desc (for validation)
     mof2desc_ckpt_dir="/path/to/mof2desc.ckpt",
-    # sklearn model (for property prediction)
-    skmodel_ckpt_dir="/path/to/sk_model.joblib",
-    skmodel_mean_std_dir="/path/to/scaler.json",
+    skmodel_ckpt_dir="/path/to/sk_model.pickle",      # Optional: for pred_value column
+    skmodel_mean_std_dir="/path/to/scaler.yaml",      # Optional: for feature_importances
+)
+
+# Without sklearn model (no pred_value column)
+egmof = EGMOF(
+    prop2desc_model_config_path="config_prop2desc_model.yaml",
+    skmodel_mean_std_dir="/path/to/scaler.yaml",  # Loads feature_importances from yaml
 )
 
 egmof.load()
@@ -141,59 +171,6 @@ python -m egmof.desc2mof.pretrain \
 
 ---
 
-## Known Issues / Bugs
-
-### 1. Duplicate method in `desc2mof/model.py` (lines 554-610)
-
-Two `on_predict_epoch_end` methods defined - the second one (lines 576-610) overrides the first:
-
-```python
-# Line 554-574: First definition (overwritten)
-def on_predict_epoch_end(self):
-    ...
-
-# Line 576-610: Second definition (active)
-def on_predict_epoch_end(self):  
-    ...
-```
-
-**Fix**: Delete one of the two methods.
-
-### 2. Deprecated imports in `desc2mof/model.py` and `desc2mof/pretrain.py`
-
-Uses deprecated `pytorch_lightning` instead of `lightning`:
-
-```python
-# Wrong
-import pytorch_lightning as pl
-from pytorch_lightning import Trainer
-
-# Should be
-from lightning import Trainer
-```
-
-### 3. Undefined variable in `desc2mof/pretrain.py` (lines 93, 99)
-
-```python
-# Line 93: num_device is never defined
-accumulate_grad_batches = config["batch_size"] // (
-    config["per_gpu_batchsize"] * num_device * config["num_nodes"]
-)
-```
-
-**Fix**: Should use `args.devices` instead of undefined `num_device`.
-
-### 4. Missing dependency in `pyproject.toml`
-
-`egmof.py` imports `joblib` but it's not in dependencies:
-
-```toml
-# Add to dependencies in pyproject.toml
-joblib
-```
-
----
-
 ## API Reference
 
 ### EGMOF Class
@@ -205,11 +182,19 @@ EGMOF(
     prop2desc_model_config_path: Optional,    # Model config YAML
     prop2desc_training_config_path: Optional, # Training config YAML
     overrides: Optional[Dict],                 # Config overrides
-    # For generation only:
-    desc2mof_ckpt_dir: Optional,
-    desc2mof_config_path: Optional,
-    mof2desc_ckpt_dir: Optional,
+    # desc2mof (defaults set automatically)
+    desc2mof_ckpt_dir: Optional,               # Default: checkpoints/desc2mof/desc2mof_best.ckpt
+    desc2mof_config_path: Optional,            # Default: config/desc2mof_training_config.yaml
+    desc2mof_mean_dir: Optional,               # Default: src/egmof/desc2mof/data/mean_all.csv
+    desc2mof_std_dir: Optional,                # Default: src/egmof/desc2mof/data/std_all.csv
+    desc2mof_feature_name_dir: Optional,       # Default: src/egmof/desc2mof/data/feature_name.txt
+    desc2mof_feature_size: int = 183,
+    # mof2desc (defaults set automatically)
+    mof2desc_ckpt_dir: Optional,               # Default: checkpoints/mof2desc/mof2desc_best.ckpt
+    mof2desc_config_path: Optional,             # Default: config/mof2desc_training_config.yaml
+    # sklearn model (optional)
     skmodel_ckpt_dir: Optional,
+    skmodel_mean_std_dir: Optional,
 )
 ```
 

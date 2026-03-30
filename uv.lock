@@ -515,6 +515,7 @@ source = { editable = "." }
 dependencies = [
     { name = "ase" },
     { name = "einops" },
+    { name = "joblib" },
     { name = "lightning" },
     { name = "molsimplify" },
     { name = "numpy" },
@@ -540,6 +541,7 @@ dev = [
 requires-dist = [
     { name = "ase", specifier = ">=3.28.0" },
     { name = "einops", specifier = ">=0.8.2" },
+    { name = "joblib" },
     { name = "lightning", specifier = ">=2.6.1" },
     { name = "molsimplify", specifier = ">=0.3.0" },
     { name = "numpy", specifier = "<2" },

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Literal, Optional, Union
 from pathlib import Path
 
@@ -30,26 +31,55 @@ from .desc2mof import (
     decode_token2mof,
     __desc2mof_dir__,
 )
+from . import __root_dir__
 from .data import Datamodule
 from .data.dataset import CSVDataset, TextSplitDataset, JsonSplitDataset
 
+# Default checkpoint paths
+DEFAULT_DESC2MOF_CKPT = os.path.join(
+    __root_dir__, "checkpoints", "desc2mof", "desc2mof_best.ckpt"
+)
+DEFAULT_MOF2DESC_CKPT = os.path.join(
+    __root_dir__, "checkpoints", "mof2desc", "mof2desc_best.ckpt"
+)
 
-def _build_mofgen_dataset(desc_tensor: torch.Tensor, scaler: Scaler, feature_name_dir: str):
+# Default desc2mof paths
+DEFAULT_DESC2MOF_MEAN = os.path.join(__desc2mof_dir__, "data", "mean_all.csv")
+DEFAULT_DESC2MOF_STD = os.path.join(__desc2mof_dir__, "data", "std_all.csv")
+DEFAULT_DESC2MOF_FEATURE_NAME = os.path.join(
+    __desc2mof_dir__, "data", "feature_name.txt"
+)
+DEFAULT_DESC2MOF_CONFIG = os.path.join(
+    __root_dir__, "..", "config", "desc2mof_training_config.yaml"
+)
+DEFAULT_MOF2DESC_CONFIG = os.path.join(
+    __root_dir__, "..", "config", "mof2desc_training_config.yaml"
+)
+
+
+def _build_mofgen_dataset(
+    desc_tensor: torch.Tensor, scaler: Scaler, feature_name_dir: str
+):
     """Build MOFGenDataset from descriptor tensor [N, D]."""
     desc_np = desc_tensor.detach().cpu().numpy()
     df = pd.DataFrame(desc_np, columns=None)
-    return MOFGenDataset(df, scaled=True, scaler=scaler, feature_name_dir=feature_name_dir)
+    return MOFGenDataset(
+        df, scaled=True, scaler=scaler, feature_name_dir=feature_name_dir
+    )
 
 
 def _parse_mof_output(all_output: List, SEP_TOKEN_ID: int):
     """Parse MOF token output, returns (valid_mask, log_list)."""
     from .desc2mof.utils import is_valid as _is_valid
+
     return _is_valid(all_output, SEP_TOKEN_ID)
 
 
-def cal_wmse(pred_desc: torch.Tensor, target_desc: torch.Tensor, weights) -> torch.Tensor:
+def cal_wmse(
+    pred_desc: torch.Tensor, target_desc: torch.Tensor, weights
+) -> torch.Tensor:
     """Calculate weighted MSE between predicted and target descriptors."""
-    mse = F.mse_loss(pred_desc, target_desc, reduction='none')
+    mse = F.mse_loss(pred_desc, target_desc, reduction="none")
     w = torch.tensor(weights, dtype=mse.dtype, device=mse.device)
     weighted_mse = mse * w
     wmse = weighted_mse.sum(dim=-1) / w.sum()
@@ -68,24 +98,24 @@ class EGMOF:
 
     def __init__(
         self,
-        target: str,
-        data_path: str | Path,
+        target: Optional[str] = None,
+        data_path: Optional[str | Path] = None,
         prop2desc_model_config_path: Optional[str | Path] = None,
         prop2desc_training_config_path: Optional[str | Path] = None,
-        desc2mof_ckpt_dir: Optional[str | Path] = None,
-        desc2mof_config_path: Optional[str | Path] = None,
-        mof2desc_ckpt_dir: Optional[str | Path] = None,
-        mof2desc_config_path: Optional[str | Path] = None,
+        desc2mof_ckpt_dir: Optional[str | Path] = DEFAULT_DESC2MOF_CKPT,
+        desc2mof_config_path: Optional[str | Path] = DEFAULT_DESC2MOF_CONFIG,
+        mof2desc_ckpt_dir: Optional[str | Path] = DEFAULT_MOF2DESC_CKPT,
+        mof2desc_config_path: Optional[str | Path] = DEFAULT_MOF2DESC_CONFIG,
         skmodel_ckpt_dir: Optional[str | Path] = None,
         skmodel_mean_std_dir: Optional[str | Path] = None,
-        desc2mof_mean_dir: Optional[str | Path] = None,
-        desc2mof_std_dir: Optional[str | Path] = None,
-        desc2mof_feature_name_dir: Optional[str | Path] = None,
+        desc2mof_mean_dir: Optional[str | Path] = DEFAULT_DESC2MOF_MEAN,
+        desc2mof_std_dir: Optional[str | Path] = DEFAULT_DESC2MOF_STD,
+        desc2mof_feature_name_dir: Optional[str | Path] = DEFAULT_DESC2MOF_FEATURE_NAME,
         desc2mof_feature_size: int = 183,
         overrides: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.target = target
-        self.data_path = Path(data_path)
+        self.data_path = Path(data_path) if data_path else None
         self.prop2desc_model_config_path = prop2desc_model_config_path
         self.prop2desc_training_config_path = prop2desc_training_config_path
         self.overrides = overrides or {}
@@ -112,6 +142,7 @@ class EGMOF:
         self._mof2desc_model = None
         self._sk_model = None
         self._sk_scaler = None
+        self._sk_feature_importances = None
         self._topo_cn_dict = None
         self._bb_cn_dict = None
 
@@ -141,6 +172,10 @@ class EGMOF:
         raise ValueError(f"Unknown dataset_cls: {name}. Use one of [csv, text, json].")
 
     def build_datamodule(self) -> Datamodule:
+        if self.data_path is None:
+            raise ValueError(
+                "data_path is required for training. Set data_path or use generate() with existing descriptors."
+            )
         dm_cfg = self.cfg.get("datamodule", {})
         dataset_cls = self._dataset_cls_from_name(dm_cfg.get("dataset_cls", "csv"))
         self.datamodule = Datamodule(
@@ -206,53 +241,63 @@ class EGMOF:
             return self._desc2mof_config
         cfg_path = str(self.desc2mof_config_path) if self.desc2mof_config_path else None
         if cfg_path:
-            with open(cfg_path, 'r') as f:
+            with open(cfg_path, "r") as f:
                 self._desc2mof_config = yaml.safe_load(f)
         else:
             self._desc2mof_config = {}
         assert self._desc2mof_config is not None
-        self._desc2mof_config['feature_size'] = self.desc2mof_feature_size
+        self._desc2mof_config["feature_size"] = self.desc2mof_feature_size
         return self._desc2mof_config
 
     def _load_desc2mof_scaler(self) -> Scaler:
         """Load desc2mof scaler (mean/std normalization)."""
         if self._desc2mof_scaler is not None:
             return self._desc2mof_scaler
-        feat_path = str(self.desc2mof_feature_name_dir) if self.desc2mof_feature_name_dir else None
+        feat_path = (
+            str(self.desc2mof_feature_name_dir)
+            if self.desc2mof_feature_name_dir
+            else None
+        )
         if feat_path:
-            with open(feat_path, 'r') as f:
+            with open(feat_path, "r") as f:
                 self._desc2mof_feature_names = [line.strip() for line in f.readlines()]
         mean_path = str(self.desc2mof_mean_dir)
         std_path = str(self.desc2mof_std_dir)
         mean = pd.read_csv(mean_path)[self._desc2mof_feature_names or []]
         std = pd.read_csv(std_path)[self._desc2mof_feature_names or []]
         self._desc2mof_scaler = Scaler(
-            np.array(mean).squeeze(), 
-            np.array(std).squeeze(), 
-            0, 1
+            np.array(mean).squeeze(), np.array(std).squeeze(), 0, 1
         )
         return self._desc2mof_scaler
 
     def _load_mof_topo_cn_dict(self) -> Dict:
         """Load topology-CN dictionary for validation."""
         import pickle
+
         if self._topo_cn_dict is not None:
             return self._topo_cn_dict
-        topo_path = Path(__desc2mof_dir__) / 'data' / 'mof_topo_cn_dict.pkl'
-        with open(topo_path, 'rb') as f:
+        topo_path = Path(__desc2mof_dir__) / "data" / "mof_topo_cn_dict.pkl"
+        with open(topo_path, "rb") as f:
             mof_topo_cn_dict = pickle.load(f)
-        self._topo_cn_dict = {MOF_ENCODE_DICT[k]: v for k, v in mof_topo_cn_dict.items()}
+        self._topo_cn_dict = {
+            MOF_ENCODE_DICT[k]: v for k, v in mof_topo_cn_dict.items()
+        }
         return self._topo_cn_dict
 
     def _load_bb_cn_dict(self) -> Dict:
         """Load building block-CN dictionary for validation."""
         import pickle
+
         if self._bb_cn_dict is not None:
             return self._bb_cn_dict
-        bb_path = Path(__desc2mof_dir__) / 'data' / 'bb_cn_dict.pkl'
-        with open(bb_path, 'rb') as f:
+        bb_path = Path(__desc2mof_dir__) / "data" / "bb_cn_dict.pkl"
+        with open(bb_path, "rb") as f:
             bbname_cn_dict = pickle.load(f)
-        self._bb_cn_dict = {MOF_ENCODE_DICT[k]: v for k, v in bbname_cn_dict.items() if k in MOF_ENCODE_DICT}
+        self._bb_cn_dict = {
+            MOF_ENCODE_DICT[k]: v
+            for k, v in bbname_cn_dict.items()
+            if k in MOF_ENCODE_DICT
+        }
         return self._bb_cn_dict
 
     def load(self):
@@ -261,49 +306,100 @@ class EGMOF:
         if prop2desc_ckpt:
             self.prop2desc = Prop2Desc.load_from_checkpoint(prop2desc_ckpt)
         if self.desc2mof_ckpt_dir:
+            desc2mof_path = Path(self.desc2mof_ckpt_dir)
+            if not desc2mof_path.exists():
+                raise FileNotFoundError(
+                    f"desc2mof checkpoint not found: {desc2mof_path}\n"
+                    "Please download from: https://zenodo.org/records/your-record-id"
+                )
             self._desc2mof_config = self._load_desc2mof_config()
             self._desc2mof_scaler = self._load_desc2mof_scaler()
         if self.mof2desc_ckpt_dir:
+            mof2desc_path = Path(self.mof2desc_ckpt_dir)
+            if not mof2desc_path.exists():
+                raise FileNotFoundError(
+                    f"mof2desc checkpoint not found: {mof2desc_path}\n"
+                    "Please download from: https://zenodo.org/records/your-record-id"
+                )
             self._mof2desc_model = self._load_mof2desc()
-        if self.skmodel_ckpt_dir:
-            self._sk_model = joblib.load(self.skmodel_ckpt_dir)
-            self._sk_scaler = self._load_sk_scaler()
+            self._load_sk_model()
 
     def _load_mof2desc(self):
         """Load mof2desc model (EGMOF migration pending)."""
+        import sys
+        from types import ModuleType
+
+        easy_adapt_mof = ModuleType("easy_adapt_mof")
+        easy_adapt_mof.mof2desc = ModuleType("easy_adapt_mof.mof2desc")
+        sys.modules["easy_adapt_mof"] = easy_adapt_mof
+        sys.modules["easy_adapt_mof.mof2desc"] = easy_adapt_mof.mof2desc
+
         try:
             from .mof2desc import MOF2Desc as MOF2DescModel
+            from .mof2desc.model.dataset import Scaler
+
+            easy_adapt_mof.mof2desc.model = ModuleType("easy_adapt_mof.mof2desc.model")
+            sys.modules["easy_adapt_mof.mof2desc.model"] = easy_adapt_mof.mof2desc.model
+            easy_adapt_mof.mof2desc.model.dataset = ModuleType(
+                "easy_adapt_mof.mof2desc.model.dataset"
+            )
+            sys.modules["easy_adapt_mof.mof2desc.model.dataset"] = (
+                easy_adapt_mof.mof2desc.model.dataset
+            )
+            easy_adapt_mof.mof2desc.model.dataset.Scaler = Scaler
         except ImportError:
             raise ImportError(
                 "mof2desc module not found in egmof. "
                 "Please migrate mof2desc to src/egmof/mof2desc/ first."
             )
-        cfg = self._load_desc2mof_config()
+        mof2desc_cfg_path = (
+            str(self.mof2desc_config_path) if self.mof2desc_config_path else None
+        )
+        if mof2desc_cfg_path:
+            with open(mof2desc_cfg_path, "r") as f:
+                cfg = yaml.safe_load(f)
+        else:
+            cfg = {}
         scaler = self._load_desc2mof_scaler()
         ckpt = str(self.mof2desc_ckpt_dir) if self.mof2desc_ckpt_dir else None
         return MOF2DescModel.load_from_checkpoint(
-            ckpt, config=cfg, scaler=scaler, strict=False
+            ckpt, config=cfg, scaler=scaler, strict=False, weights_only=False
         )
 
-    def _load_sk_scaler(self) -> Scaler:
-        """Load sklearn model scaler."""
+    def _load_sk_scaler(self) -> tuple[Scaler, np.ndarray | None]:
         path = str(self.skmodel_mean_std_dir)
-        if path.endswith('.json'):
+        if path.endswith(".json"):
             import json
-            with open(path, 'r') as f:
-                scaler_dict = json.load(f)
-        elif path.endswith('.yaml'):
-            with open(path, 'r') as f:
-                scaler_dict = yaml.safe_load(f)
-            scaler_dict = scaler_dict.get('scaler_value', scaler_dict)
+
+            with open(path, "r") as f:
+                yaml_data = json.load(f)
+        elif path.endswith(".yaml"):
+            with open(path, "r") as f:
+                yaml_data = yaml.safe_load(f)
         else:
             raise ValueError(f"Unsupported skmodel_mean_std format: {path}")
-        return Scaler(
-            scaler_dict['mean'], 
-            scaler_dict['std'], 
-            scaler_dict['target_mean'], 
-            scaler_dict['target_std']
+
+        feature_importances = yaml_data.get("feature_importances", None)
+        scaler_dict = yaml_data.get("scaler_value", yaml_data)
+
+        scaler = Scaler(
+            scaler_dict["mean"],
+            scaler_dict["std"],
+            scaler_dict["target_mean"],
+            scaler_dict["target_std"],
         )
+
+        return scaler, feature_importances
+
+    def _load_sk_model(self):
+        if self.skmodel_ckpt_dir:
+            self._sk_model = joblib.load(self.skmodel_ckpt_dir)
+            self._sk_feature_importances = self._sk_model.feature_importances_.tolist()
+
+        if self.skmodel_mean_std_dir:
+            self._sk_scaler, fi_from_yaml = self._load_sk_scaler()
+            if self._sk_feature_importances is None:
+                self._sk_feature_importances = fi_from_yaml
 
     def _is_valid(self, all_output: List, SEP_TOKEN_ID: int):
         """Validate generated MOF tokens against topology/building block constraints."""
@@ -327,13 +423,13 @@ class EGMOF:
             seq = [t for t in res if t not in [EOS_TOKEN, PAD_TOKEN]]
             if not seq:
                 results.append(False)
-                log_list.append(['Not sequence'])
+                log_list.append(["Not sequence"])
                 continue
 
             topo_id = seq[0]
             if topo_id not in topo_cn_dict:
                 results.append(False)
-                log_list.append([f'Invalid Topology ID: {topo_id}'])
+                log_list.append([f"Invalid Topology ID: {topo_id}"])
                 continue
 
             node_cns_arr, edge_count = topo_cn_dict[topo_id]
@@ -342,14 +438,17 @@ class EGMOF:
             body_seq = seq[1:]
             raw_segments = split_list(body_seq, SEP_TOKEN_ID)
             clean_segments = [
-                [t for t in seg if t not in CN_IDS]
-                for seg in raw_segments
+                [t for t in seg if t not in CN_IDS] for seg in raw_segments
             ]
             clean_segments = [s for s in clean_segments if s]
 
             if len(clean_segments) != len(expected_cns):
                 results.append(False)
-                log_list.append([f'Segment mismatch: expected {len(expected_cns)}, got {len(clean_segments)}'])
+                log_list.append(
+                    [
+                        f"Segment mismatch: expected {len(expected_cns)}, got {len(clean_segments)}"
+                    ]
+                )
                 continue
 
             segment_check_fail, fail_reason = False, ""
@@ -371,7 +470,9 @@ class EGMOF:
                         fail_reason = f"Lr count mismatch at idx {idx}"
                         break
                     try:
-                        selfies_str = ''.join([MOF_DECODE_DICT.get(s, str(s)) for s in segment])
+                        selfies_str = "".join(
+                            [MOF_DECODE_DICT.get(s, str(s)) for s in segment]
+                        )
                         if selfies_str != selfies.encoder(selfies.decoder(selfies_str)):
                             segment_check_fail = True
                             fail_reason = f"Invalid SELFIES at {idx}"
@@ -387,7 +488,7 @@ class EGMOF:
                 correct += 1
 
         acc = correct / len(all_output) if all_output else 0
-        print(f'accuracy: {acc:.4f}, correct: {correct}, total: {len(all_output)}')
+        print(f"accuracy: {acc:.4f}, correct: {correct}, total: {len(all_output)}")
         return np.array(results), log_list
 
     def _run_desc2mof(
@@ -399,24 +500,33 @@ class EGMOF:
         length_penalty_alpha: float = 0.6,
         batch_size: int = 256,
         num_workers: int = 0,
-        device: str = 'cuda',
+        device: str = "cuda",
     ):
         """Run desc2mof inference: descriptor → MOF tokens (beam search)."""
         desc2mof = Desc2MOFModel.load_from_checkpoint(
-            self.desc2mof_ckpt_dir, 
-            config=self._load_desc2mof_config(), 
-            strict=False
+            self.desc2mof_ckpt_dir,
+            config=self._load_desc2mof_config(),
+            strict=False,
+            weights_only=False,
         ).to(device)
         desc2mof.eval()
 
         scaler = self._load_desc2mof_scaler()
         feature_names = self._desc2mof_feature_names or []
-        feature_name_dir = str(self.desc2mof_feature_name_dir) if self.desc2mof_feature_name_dir else str(Path(__desc2mof_dir__) / 'data' / 'feature_name.txt')
+        feature_name_dir = (
+            str(self.desc2mof_feature_name_dir)
+            if self.desc2mof_feature_name_dir
+            else str(Path(__desc2mof_dir__) / "data" / "feature_name.txt")
+        )
 
         desc_np = target_desc.detach().cpu().numpy()
         target_df = pd.DataFrame(desc_np, columns=feature_names)
-        target_data = MOFGenDataset(target_df, scaled=True, scaler=scaler, feature_name_dir=feature_name_dir)
-        target_loader = DataLoader(target_data, batch_size=batch_size, num_workers=num_workers, shuffle=False)
+        target_data = MOFGenDataset(
+            target_df, scaled=True, scaler=scaler, feature_name_dir=feature_name_dir
+        )
+        target_loader = DataLoader(
+            target_data, batch_size=batch_size, num_workers=num_workers, shuffle=False
+        )
 
         preds_output = []
         for batch in tqdm(target_loader, desc="desc2mof inference"):
@@ -432,7 +542,9 @@ class EGMOF:
                 )
                 preds_output.append(preds)
         preds_output = torch.concat(preds_output)
-        all_output = preds_output.reshape(-1, preds_output.shape[-1]).detach().cpu().tolist()
+        all_output = (
+            preds_output.reshape(-1, preds_output.shape[-1]).detach().cpu().tolist()
+        )
         mof_names = decode_token2mof(all_output)
         return all_output, mof_names, target_data
 
@@ -444,7 +556,7 @@ class EGMOF:
         wmse_target: float,
         batch_size: int = 256,
         num_workers: int = 0,
-        device: str = 'cuda',
+        device: str = "cuda",
     ):
         """Run mof2desc, compute wmse, and select best MOFs."""
         try:
@@ -460,18 +572,29 @@ class EGMOF:
         mof2desc = mof2desc.to(device)
         mof2desc.eval()
 
-        sk_model = self._sk_model
-        if sk_model is None:
-            raise RuntimeError("sk_model not loaded. Call load() first.")
-        weights = sk_model.feature_importances_
+        weights = self._sk_feature_importances
+        if weights is None:
+            raise RuntimeError(
+                "sk feature_importances not loaded. Add 'feature_importances' to scaler YAML."
+            )
 
         valid_mask, log_list = self._is_valid(all_output, SEP_TOKEN_ID=SEP_TOKEN)
         any_valid_mask = valid_mask.reshape(-1, topk).any(axis=1)
 
         x_np = np.array(target_data.x.squeeze(-1))
-        x_tensor = torch.from_numpy(x_np).unsqueeze(1).repeat(1, topk, 1).view(-1, self.desc2mof_feature_size)
+        x_tensor = (
+            torch.from_numpy(x_np)
+            .unsqueeze(1)
+            .repeat(1, topk, 1)
+            .view(-1, self.desc2mof_feature_size)
+        )
         mof2desc_dataset = Desc2MOFOutputDataset(all_output, x_tensor, scaled=False)
-        mof2desc_loader = DataLoader(mof2desc_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False)
+        mof2desc_loader = DataLoader(
+            mof2desc_dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            shuffle=False,
+        )
 
         wmse_output, mof2desc_preds = [], []
         for batch in tqdm(mof2desc_loader, desc="mof2desc inference"):
@@ -488,11 +611,11 @@ class EGMOF:
         wmse_output = torch.concat(wmse_output).detach().cpu().numpy()
         mof2desc_preds = torch.concat(mof2desc_preds).detach().cpu().numpy()
         scaler = self._desc2mof_scaler
-        mof2desc_preds_decoded = scaler.decode(mof2desc_preds) if scaler else mof2desc_preds
-        prop_preds = sk_predict(mof2desc_preds_decoded, sk_model, self._sk_scaler)
+        mof2desc_preds_decoded = (
+            scaler.decode(mof2desc_preds) if scaler else mof2desc_preds
+        )
 
         wmse_reshaped = wmse_output.reshape(-1, topk)
-        prop_preds_reshaped = prop_preds.reshape(-1, topk)
         mof_names_reshaped = np.array(decode_token2mof(all_output)).reshape(-1, topk)
         valid_mask_reshaped = valid_mask.reshape(-1, topk)
 
@@ -501,16 +624,22 @@ class EGMOF:
         row_idx = np.arange(wmse_reshaped.shape[0])
 
         best_wmse = wmse_reshaped[row_idx, min_indices]
-        best_prop_preds = prop_preds_reshaped[row_idx, min_indices]
         best_mof_names = mof_names_reshaped[row_idx, min_indices]
 
         feature_names = self._desc2mof_feature_names or []
         new_df = pd.DataFrame(target_data.x_origin, columns=feature_names)
-        new_df['filename'] = best_mof_names
-        new_df['wmse'] = best_wmse
-        new_df['pred_value'] = best_prop_preds
+        new_df["filename"] = best_mof_names
+        new_df["wmse"] = best_wmse
 
-        wmse_mask = new_df['wmse'] < wmse_target
+        if self._sk_model is not None:
+            prop_preds = sk_predict(
+                mof2desc_preds_decoded, self._sk_model, self._sk_scaler
+            )
+            prop_preds_reshaped = prop_preds.reshape(-1, topk)
+            best_prop_preds = prop_preds_reshaped[row_idx, min_indices]
+            new_df["pred_value"] = best_prop_preds
+
+        wmse_mask = new_df["wmse"] < wmse_target
         final_mask = wmse_mask & any_valid_mask
 
         return new_df[final_mask], new_df[~final_mask], log_list
@@ -519,13 +648,13 @@ class EGMOF:
         self,
         num_samples: int = 100,
         target: Optional[float] = None,
-        output_type: Literal['cif', 'token', 'df'] = 'df',
+        output_type: Literal["cif", "token", "df"] = "df",
         topk: int = 5,
         temperature: float = 1.0,
         wmse_target: float = 0.5,
         batch_size: int = 256,
         num_workers: int = 0,
-        device: str = 'cuda',
+        device: str = "cuda",
         save_descriptor_path: Optional[str] = None,
     ) -> Union[pd.DataFrame, List[str]]:
         """Generate MOF structures from target property.
@@ -554,7 +683,9 @@ class EGMOF:
         if self.prop2desc is None:
             self.load()
         if self.prop2desc is None:
-            raise RuntimeError("prop2desc not loaded. Provide prop2desc checkpoint or config.")
+            raise RuntimeError(
+                "prop2desc not loaded. Provide prop2desc checkpoint or config."
+            )
 
         desc_tensor = self.prop2desc.sample(
             num_samples=num_samples,
@@ -580,11 +711,11 @@ class EGMOF:
 
         print(f"Generated {len(valid_df)} valid MOFs out of {num_samples}")
 
-        if output_type == 'df':
+        if output_type == "df":
             result_df: pd.DataFrame = valid_df  # type: ignore[assignment]
             return result_df
-        elif output_type == 'token':
-            return valid_df['filename'].tolist()
+        elif output_type == "token":
+            return valid_df["filename"].tolist()
         else:
             raise ValueError(f"Unknown output_type: {output_type}")
 
@@ -596,7 +727,7 @@ class EGMOF:
         wmse_target: float = 0.5,
         batch_size: int = 256,
         num_workers: int = 0,
-        device: str = 'cuda',
+        device: str = "cuda",
     ):
         """Internal: run full desc2mof → mof2desc → selection pipeline."""
         all_output, mof_names, target_data = self._run_desc2mof(
