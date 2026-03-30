@@ -1,6 +1,7 @@
 import os
 import shutil
 import argparse
+import re
 from pathlib import Path
 
 from tqdm.auto import tqdm
@@ -46,94 +47,87 @@ def ensure_xtb_installed(force: bool = False) -> str:
         ) from e
 
 
-def make_bbs(
-    selfies_list,
-    run_dir: str | None = None,
-    engine: str = "xtb",
-    max_workers: int = 1,
-) -> tuple[list, dict]:
-    if run_dir is None:
-        run_dir = str(Path(__file__).parent / "new_bbs")
-    os.makedirs(run_dir, exist_ok=True)
-
-    xtb_bin = None
-    if engine == "xtb":
-        xtb_bin = find_xtb_bin() or ensure_xtb_installed()
-    else:
-        xtb_bin = "xtb"
-
+def get_counters(run_dir: str) -> tuple[int, int]:
+    """Parse existing Custom_E*.xyz / Custom_N*.xyz files to find next counter values."""
     e_counter, n_counter = 0, 0
-    failed_selfies = []
-    selfies_to_name = {}
+    if not os.path.isdir(run_dir):
+        return e_counter, n_counter
+    for fname in os.listdir(run_dir):
+        m = re.match(r"Custom_E(\d+)\.xyz", fname)
+        if m:
+            e_counter = max(e_counter, int(m.group(1)))
+        m = re.match(r"Custom_N(\d+)\.xyz", fname)
+        if m:
+            n_counter = max(n_counter, int(m.group(1)))
+    return e_counter, n_counter
 
-    for ith, selfies_str in enumerate(tqdm(selfies_list, desc="Generating BBs")):
-        cn = selfies_str.count("[Lr]")
 
-        if cn == 2:
-            bb_type, num = "E", e_counter + 1
-            out_name = f"Custom_E{num}.xyz"
-        elif cn > 2:
-            bb_type, num = "N", n_counter + 1
-            out_name = f"Custom_N{num}.xyz"
+def make_bb(
+    selfies_str: str,
+    run_dir: str,
+    engine: str = "xtb",
+    xtb_bin: str | None = None,
+) -> tuple[bool, str]:
+    cn = selfies_str.count("[Lr]")
+    if cn < 2:
+        print(f"[SKIP] [Lr] count={cn} (expected >=2)")
+        return False, ""
+
+    e_counter, n_counter = get_counters(run_dir)
+
+    if cn == 2:
+        bb_type, num = "E", e_counter + 1
+    else:
+        bb_type, num = "N", n_counter + 1
+
+    out_name = f"Custom_{bb_type}{num}.xyz"
+    save_path = os.path.join(run_dir, out_name)
+
+    if os.path.exists(save_path):
+        print(f"[SKIP] Already exists: {out_name}")
+        return True, out_name[:-4]
+
+    if xtb_bin is None:
+        if engine == "xtb":
+            xtb_bin = find_xtb_bin() or ensure_xtb_installed()
         else:
-            failed_selfies.append(selfies_str)
-            print(f"[SKIP] ith={ith} unexpected [Lr] count={cn}")
-            continue
+            xtb_bin = "xtb"
 
-        save_path = os.path.join(run_dir, out_name)
-
-        if os.path.exists(save_path):
-            selfies_to_name[selfies_str] = out_name[:-4]
-            if bb_type == "E":
-                e_counter += 1
-            else:
-                n_counter += 1
-            continue
-
-        try:
-            _ = decode_selfies_to_xyz_opt(
-                selfies_str,
-                run_dir=run_dir,
-                out_xyz_name=out_name,
-                xtb_bin=xtb_bin,
-                engine=engine,
-            )
-            selfies_to_name[selfies_str] = out_name[:-4]
-            if bb_type == "E":
-                e_counter += 1
-            else:
-                n_counter += 1
-        except Exception as err:
-            failed_selfies.append(selfies_str)
-            print(f"[FAIL] ith={ith} name={out_name} err={err}")
-
-    return failed_selfies, selfies_to_name
+    try:
+        _ = decode_selfies_to_xyz_opt(
+            selfies_str,
+            run_dir=run_dir,
+            out_xyz_name=out_name,
+            xtb_bin=xtb_bin,
+            engine=engine,
+        )
+        return True, out_name[:-4]
+    except Exception as err:
+        print(f"[FAIL] {out_name} — {err}")
+        return False, ""
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Batch generate building blocks from SELFIES")
-    parser.add_argument("input", help="Pickle file with list of SELFIES strings")
-    parser.add_argument("--run_dir", default=None, help="Output directory")
+    parser = argparse.ArgumentParser(description="Generate building block XYZ from SELFIES")
+    parser.add_argument("selfies", help="SELFIES string")
+    parser.add_argument("--run_dir", default=None, help="Output directory (default: builder/new_bbs)")
     parser.add_argument("--engine", default="xtb", choices=["xtb", "mmff", "uff"], help="Optimization engine")
-    parser.add_argument("--no_auto_install", action="store_true", help="Skip auto-download of xtb")
     args = parser.parse_args()
 
-    import pickle
-    with open(args.input, "rb") as f:
-        selfies_list = pickle.load(f)
+    if args.run_dir is None:
+        args.run_dir = os.path.join(__root_dir__, "builder", "new_bbs")
+    os.makedirs(args.run_dir, exist_ok=True)
 
-    print(f"[INFO] Loaded {len(selfies_list)} SELFIES strings")
-    print(f"[INFO] Engine: {args.engine}")
+    print(f"[INFO] SELFIES: {args.selfies}")
+    print(f"[INFO] run_dir: {args.run_dir}")
+    print(f"[INFO] engine: {args.engine}")
 
-    failed, mapping = make_bbs(selfies_list, run_dir=args.run_dir, engine=args.engine)
+    success, bb_name = make_bb(args.selfies, args.run_dir, args.engine)
 
-    print(f"\n[RESULT] Generated: {len(mapping)} | Failed: {len(failed)}")
-    if failed:
-        print(f"[WARN] {len(failed)} SELFIES failed")
-        failed_path = os.path.join(args.run_dir or str(Path(__file__).parent / "new_bbs"), "failed_selfies.pkl")
-        with open(failed_path, "wb") as f:
-            pickle.dump(failed, f)
-        print(f"[INFO] Failed list saved to: {failed_path}")
+    if success:
+        print(f"\n[OK] {bb_name}.xyz")
+    else:
+        print(f"\n[FAIL] Generation failed")
 
 
 if __name__ == "__main__":
