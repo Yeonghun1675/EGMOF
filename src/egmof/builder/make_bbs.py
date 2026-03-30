@@ -6,7 +6,7 @@ from pathlib import Path
 
 from tqdm.auto import tqdm
 
-from egmof import __root_dir__
+from egmof.builder import __builder_dir__
 from egmof.builder.selfies2bb import decode_selfies_to_xyz_opt
 
 
@@ -33,8 +33,10 @@ def ensure_xtb_installed(force: bool = False) -> str:
     archive = Path("/tmp") / f"xtb-{XTB_VERSION}-linux-x86_64.tar.xz"
     try:
         import urllib.request
+
         urllib.request.urlretrieve(XTB_URL, archive)
         import tarfile
+
         with tarfile.open(archive, "r:xz") as tar:
             tar.extractall(builder_dir)
         archive.unlink(missing_ok=True)
@@ -108,14 +110,23 @@ def make_bb(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate building block XYZ from SELFIES")
+    parser = argparse.ArgumentParser(
+        description="Generate building block XYZ from SELFIES"
+    )
     parser.add_argument("selfies", help="SELFIES string")
-    parser.add_argument("--run_dir", default=None, help="Output directory (default: builder/new_bbs)")
-    parser.add_argument("--engine", default="xtb", choices=["xtb", "mmff", "uff"], help="Optimization engine")
+    parser.add_argument(
+        "--run_dir", default=None, help="Output directory (default: builder/new_bbs)"
+    )
+    parser.add_argument(
+        "--engine",
+        default="xtb",
+        choices=["xtb", "mmff", "uff"],
+        help="Optimization engine",
+    )
     args = parser.parse_args()
 
     if args.run_dir is None:
-        args.run_dir = os.path.join(__root_dir__, "builder", "new_bbs")
+        args.run_dir = os.path.join(__builder_dir__, "new_bbs")
     os.makedirs(args.run_dir, exist_ok=True)
 
     print(f"[INFO] SELFIES: {args.selfies}")

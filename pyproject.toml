@@ -8,6 +8,7 @@ dependencies = [
     "ase>=3.28.0",
     "einops>=0.8.2",
     "lightning>=2.6.1",
+    "molSimplify>=0.3.0",
     "numpy<2",
     "omegaconf>=2.3.0",
     "pandas>=2.0,<3.0",
