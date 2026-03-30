@@ -215,3 +215,6 @@ __marimo__/
 # descriptors
 zeopp
 /src/egmof/descriptors/work
+*.sa
+*.vol
+*.res
