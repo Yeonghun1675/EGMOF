@@ -1,0 +1,8 @@
+msw+N179+E138
+srs+N298+E0
+rac+N492+E11
+zfz+N254+E84
+unj+N371+E217
+sol+N343+E73
+ecf+N331+Custom_E30
+tsx+N595+Custom_N18+E19
