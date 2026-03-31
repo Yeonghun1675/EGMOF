@@ -123,7 +123,7 @@ class EGMOF:
         self, 
         num_samples: int = 100,
         target: Optional[str] = None,
-        output_type: Literal['cif', 'token'] = 'cif',
+        output_type: Literal['cif', 'token', "Atoms"] = 'Atoms',
     ) -> Union[str, List[str]]:
         """Generate a new MOF structure"""
         raise NotImplementedError("EGMOF is not implemented yet")
