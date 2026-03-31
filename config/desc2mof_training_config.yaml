@@ -1,0 +1,50 @@
+exp_name: desc2mof
+
+# model
+feature_size: 183
+hid_dim: 256
+num_heads: 8
+dropout: 0.1
+num_layers: 3
+
+#dataset
+topo_size: 1286
+metal_node_size: 534
+metal_edge_size: 20
+selfies_size: 30
+cn_size: 11
+max_token_len: 512
+train_data_dir: /home/users/seunghh/mofgen/easy_adapt_mof/easy_adapt_mof/desc2mof/model/test_pretrain_data/train.csv
+val_data_dir: /home/users/seunghh/mofgen/easy_adapt_mof/easy_adapt_mof/desc2mof/model/test_pretrain_data/val.csv
+test_data_dir: /home/users/seunghh/mofgen/easy_adapt_mof/easy_adapt_mof/desc2mof/model/test_pretrain_data/test.csv
+
+feature_name_dir: /home/users/seunghh/mofgen/easy_adapt_mof/easy_adapt_mof/desc2mof/model/data/feature_name.txt
+mean_dir : /home/users/seunghh/mofgen/easy_adapt_mof/easy_adapt_mof/desc2mof/model/data/mean_all.csv
+std_dir : '/home/users/seunghh/mofgen/easy_adapt_mof/easy_adapt_mof/desc2mof/model/data/std_all.csv'
+
+
+#training
+seed: 1
+num_workers: 16
+batch_size: 256
+learning_rate: 0.001
+weight_decay: 0.01
+lr_mult: 1
+end_lr: 0
+decay_power: 1
+optim_type: adamw
+warmup_steps: 0.1
+max_epochs: 200
+resume_from: 
+per_gpu_batchsize: null
+num_nodes: 1
+alpha: 0.1
+
+
+
+
+
+
+
+
+
