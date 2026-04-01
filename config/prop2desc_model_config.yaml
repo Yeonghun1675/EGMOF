@@ -1,15 +1,15 @@
 model:
-  in_channels: 200
+  in_channels: 96
   timestep: 1000
-  lr: 0.0001
-  dim: 200
+  lr: 0.0003
+  dim: 183
   dim_mults: [1, 2]
   condition: numeric   # one of: null, numeric, binary, class
   out_channels: null
   num_classes: 0       # used only when condition: class
-  cond_dim: 0          # used only when condition: class
+  cond_dim: null          # used only when condition: class
   scaler_mode: standard
-  scaler_value: null   # should be dict from datamodule stats, or null to disable scaling
+  scaler_value: null   
 
 datamodule:
   batch_size: 64
