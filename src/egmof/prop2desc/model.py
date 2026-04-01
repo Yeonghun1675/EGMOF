@@ -25,7 +25,7 @@ class Prop2Desc(LightningModule):
         lr: float,
         dim: int,
         dim_mults: List[int],
-        condition: Literal["numeric", "binary", "class", None] = None,
+        condition: Literal["numeric", "binary", "class", None] = "numeric",
         out_channels: Optional[int] = None,
         num_classes: int = 0,
         cond_dim: int = 0,
