@@ -1,24 +1,12 @@
 from __future__ import annotations
 
-import os
-from typing import Any, Dict, List, Literal, Optional, Union
 from pathlib import Path
+from typing import List, Literal, Optional, Union
 
-import joblib
+# import joblib
 import numpy as np
 import pandas as pd
-import selfies
-import torch
-import torch.nn.functional as F
 import yaml
-import lightning as pl
-from omegaconf import OmegaConf
-from lightning.pytorch import Trainer, seed_everything
-from lightning import callbacks
-from torch.utils.data import DataLoader
-from tqdm.auto import tqdm
-
-from egmof import mof2desc
 
 from .prop2desc import (
     Prop2Desc,
@@ -27,76 +15,29 @@ from .prop2desc import (
 
 from .desc2mof import (
     Desc2MOF as Desc2MOFModel,
-    MOFGenDataset,
     Scaler,
-    MOF_ENCODE_DICT,
-    MOF_DECODE_DICT,
-    SOS_TOKEN,
-    EOS_TOKEN,
-    PAD_TOKEN,
-    SEP_TOKEN,
-    CN_IDS,
-    decode_token2mof,
-    __desc2mof_dir__,
 )
 
-from . import __root_dir__
+from .constants import (
+    DEFAULT_DESC2MOF_CKPT,
+    DEFAULT_DESC2MOF_CONFIG,
+    DEFAULT_DESC2MOF_FEATURE_NAME,
+    DEFAULT_DESC2MOF_MEAN,
+    DEFAULT_DESC2MOF_STD,
+    DEFAULT_MOF2DESC_CKPT,
+    DEFAULT_MOF2DESC_CONFIG,
+)
+
 from .data import Datamodule
 from .data.dataset import CSVDataset, TextSplitDataset, JsonSplitDataset
 from .train import train_desc2mof, train_mof2desc
-from .utils import create_scaler, load_feature_names, load_config
+from .utils import create_scaler, load_feature_names, load_config, _load_sk_scaler
 from .generate import run_desc2mof, run_mof2desc_and_select
 
 
-def _load_sk_scaler(config_path: str | Path) -> tuple[Scaler, list[float] | None]:
-    """Load scaler and feature_importances from config (YAML/JSON)."""
-    path = str(config_path)
-    if path.endswith(".json"):
-        import json
-
-        with open(path, "r") as f:
-            yaml_data = json.load(f)
-    elif path.endswith(".yaml"):
-        with open(path, "r") as f:
-            yaml_data = yaml.safe_load(f)
-    else:
-        raise ValueError(f"Unsupported config format: {path}")
-
-    feature_importances = yaml_data.get("feature_importances", None)
-    scaler_dict = yaml_data.get("scaler_value", yaml_data)
-
-    scaler = Scaler(
-        scaler_dict["mean"],
-        scaler_dict["std"],
-        scaler_dict["target_mean"],
-        scaler_dict["target_std"],
-    )
-
-    return scaler, feature_importances
-
-
-DEFAULT_DESC2MOF_CKPT = os.path.join(
-    __root_dir__, "checkpoints", "desc2mof", "desc2mof_best.ckpt"
-)
-DEFAULT_MOF2DESC_CKPT = os.path.join(
-    __root_dir__, "checkpoints", "mof2desc", "mof2desc_best.ckpt"
-)
-DEFAULT_DESC2MOF_CONFIG = os.path.join(
-    __root_dir__, "config", "desc2mof_training_config.yaml"
-)
-DEFAULT_MOF2DESC_CONFIG = os.path.join(
-    __root_dir__, "config", "mof2desc_training_config.yaml"
-)
-DEFAULT_DESC2MOF_MEAN = os.path.join(__desc2mof_dir__, "data", "mean_all.csv")
-DEFAULT_DESC2MOF_STD = os.path.join(__desc2mof_dir__, "data", "std_all.csv")
-DEFAULT_DESC2MOF_FEATURE_NAME = os.path.join(
-    __desc2mof_dir__, "data", "feature_name.txt"
-)
-
-
+# TODO: move _load* functions to utils.py
 class EGMOF:
     """Orchestrator that wires configs → model/datamodule/trainer."""
-
     def __init__(
         self,
         prop2desc_ckpt_path: Optional[str | Path] = None,
@@ -249,13 +190,13 @@ class EGMOF:
     def train(
         self,
         data_path: Optional[str | Path] = None,
-        target_property: Optional[str] = None,
+        task: Optional[str] = None,
         prop2desc_config_path: Optional[str | Path] = None,
         desc2mof_config_path: Optional[str | Path] = None,
         mof2desc_config_path: Optional[str | Path] = None,
     ):
         if data_path and self.prop2desc is None:
-            self.train_prop2desc(data_path, target_property, prop2desc_config_path)
+            self.train_prop2desc(data_path, task, prop2desc_config_path)
         if self.desc2mof is None:
             self.train_desc2mof(desc2mof_config_path)
         if self.mof2desc is None:
@@ -263,15 +204,17 @@ class EGMOF:
 
     def train_prop2desc(
         self,
-        data_path: str | Path,
-        target_property: Optional[str] = None,
+        data_path: str | Path = None,
+        task: Optional[str] = None,
         prop2desc_config_path: Optional[str | Path] = None,
     ) -> Prop2Desc:
         """train prop2desc model"""
         self.prop2desc = run_train_prop2desc(
             config_path=prop2desc_config_path,
             data_path=data_path,
-            target=target_property,
+            task=task,
+            accelerator=self.accelerator,
+            devices=self.devices,
         )
         return self.prop2desc
 
