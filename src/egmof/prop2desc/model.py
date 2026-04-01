@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from pickle import UnpicklingError
 from typing import Any, Dict, List, Literal, Optional
 
 from tqdm import tqdm
-
+from pathlib import Path
+from omegaconf import OmegaConf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -241,3 +243,37 @@ class Prop2Desc(LightningModule):
 
     def configure_optimizers(self):
         return torch.optim.AdamW(self.model.parameters(), lr=self.lr)
+
+    @classmethod
+    def load(
+        cls,
+        ckpt_path: str | Path,
+        config_path: str | Path,
+    ) -> Prop2Desc:
+        try:
+            model = cls.load_from_checkpoint(ckpt_path, map_location="cpu", hparams_file=config_path)
+            
+        except UnpicklingError:   # Load old checkpoint format
+            config = OmegaConf.load(config_path)
+            model = cls(
+                in_channels=config.in_channels,
+                out_channels=config.out_channels,
+                dim=config.dim,
+                dim_mults=config.dim_mults,
+                condition=config.condition,
+                num_classes=config.num_classes,
+                cond_dim=config.cond_dim,
+                timestep=config.timestep,
+                lr=config.lr,
+                scaler_mode=config.scaler_mode,
+                scaler_value=config.scaler_value,
+            )
+
+            state_dict = torch.load(
+                ckpt_path,
+                map_location="cpu",
+                weights_only=False
+            )
+            model.load_state_dict(state_dict["state_dict"])
+
+        return model
