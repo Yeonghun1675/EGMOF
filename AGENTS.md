@@ -18,7 +18,7 @@ EGMOF (Efficient Generative Model for Metal-Organic Frameworks) is a Python proj
 pip install -e .
 ```
 
-### Running Tests (in `src/egmof/descriptors/test_*.py`)
+### Running Tests
 ```bash
 # Direct run with indices (start/end for slicing)
 python src/egmof/descriptors/test_get_rac.py 0 10
@@ -32,7 +32,19 @@ python -m pytest src/egmof/descriptors/test_get_rac.py -v -k "test_name"
 
 ### Running Modules
 ```bash
+# Descriptor calculation
 python -m egmof.descriptors.get_all_descriptors --cif_dir /path/to/cifs --output out.csv
+
+# desc2mof pretraining
+python -m egmof.desc2mof.pretrain --config /path/to/config.yaml --accelerator gpu
+
+# EGMOF main usage (via Python)
+python -c "
+from egmof import EGMOF
+
+egmof = EGMOF()  # auto-loads desc2mof, mof2desc
+egmof.generate(num_samples=100, target_value=150.0)
+"
 ```
 
 ---
@@ -60,6 +72,8 @@ from tqdm.auto import tqdm
 # Local
 from .data import Datamodule
 from .prop2desc import Prop2Desc
+from .train import train_desc2mof, train_mof2desc
+from .generate import run_desc2mof, run_mof2desc_and_select
 ```
 
 ### Type Hints (Python 3.12+)
@@ -69,7 +83,6 @@ from .prop2desc import Prop2Desc
 ```
 
 ### Naming Conventions
-
 | Element | Convention | Example |
 |---------|------------|---------|
 | Modules | snake_case | `get_all_descriptors.py` |
@@ -110,7 +123,7 @@ try:
 except:  # DON'T
     pass
 
-# Bad - DON'T silently fail  
+# Bad - DON'T silently fail
 x = data["key"]  # KeyError will crash elsewhere
 ```
 
@@ -133,6 +146,12 @@ with torch.no_grad():
 # Reproducibility
 from lightning import seed_everything
 seed_everything(42)
+
+# Checkpoint loading
+model = MyModel.load_from_checkpoint("path/to/ckpt.ckpt")
+
+# DataLoader
+loader = DataLoader(dataset, batch_size=64, num_workers=4, pin_memory=True)
 ```
 
 ---
@@ -141,14 +160,25 @@ seed_everything(42)
 ```
 src/egmof/
 ├── __init__.py           # Package root
-├── egmof.py              # Main orchestrator
+├── egmof.py              # Main orchestrator (EGMOF class)
+├── train.py              # train_desc2mof, train_mof2desc, dataloader creators
+├── utils.py              # create_scaler, load_config, load_feature_names
+├── generate.py           # run_desc2mof, run_mof2desc_and_select, cal_wmse, sk_predict
+├── egmof_backup.py       # Original implementation (reference)
 ├── data/                 # LightningDataModule + datasets
 ├── descriptors/          # RAC + Zeo++ calculator, tests
-├── desc2mof/             # Descriptor → MOF model
-├── mof2desc/             # MOF → Descriptor model
-├── prop2desc/            # Property → Descriptor diffusion
-└── builder/              # MOF building blocks
+├── desc2mof/            # Descriptor → MOF model
+├── mof2desc/            # MOF → Descriptor model
+├── prop2desc/           # Property → Descriptor diffusion
+└── builder/             # MOF building blocks
 ```
+
+### Module Details
+
+- **`egmof.py`**: Main EGMOF class - `__init__` params, `setup()`, `load_*`, `train_*`, `generate`
+- **`train.py`**: Training helpers - `train_desc2mof`, `train_mof2desc`, `create_*_dataloaders`
+- **`utils.py`**: Utility functions - `create_scaler`, `load_config`, `load_feature_names`, `_load_sk_scaler`
+- **`generate.py`**: Generation helpers - `run_desc2mof`, `run_mof2desc_and_select`, `cal_wmse`, `sk_predict`
 
 ---
 
@@ -157,6 +187,8 @@ OmegaConf/YAML is used throughout:
 ```python
 from omegaconf import OmegaConf
 cfg = OmegaConf.load("config.yaml")
+# Override values
+cfg = OmegaConf.load("config.yaml", overrides={"model.lr": 1e-3})
 ```
 
 ---
@@ -169,20 +201,7 @@ cfg = OmegaConf.load("config.yaml")
 
 ---
 
-## Common Patterns
-```python
-# Load checkpoint
-model = MyModel.load_from_checkpoint("path/to/ckpt.ckpt")
-
-# DataLoader
-loader = DataLoader(dataset, batch_size=64, num_workers=4, pin_memory=True)
-```
-
----
-
 ## Development Recommendations
-These are NOT yet configured - consider adding when improving:
 1. **pytest**: Add `[tool.pytest.ini_options]` to pyproject.toml
-2. **Type checking**: Add `[tool.mypy]` to pyproject.toml  
+2. **Type checking**: Add `[tool.mypy]` to pyproject.toml
 3. **Linting**: Add `[tool.ruff]` to pyproject.toml
-4. **Tests**: Consider moving to standard `tests/` directory
