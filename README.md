@@ -1,4 +1,4 @@
-# EGMOF: Efficient Generative Model for Metal-Organic Frameworks
+# EGMOF: Efficient Generative Model for Metal-Organic Frameworks (v.0.0.2)
 
 EGMOF is a PyTorch Lightning-based generative model for Metal-Organic Frameworks (MOFs) that learns to generate MOF structures from target properties using a diffusion model (prop2desc) and a transformer decoder (desc2mof).
 
@@ -20,154 +20,128 @@ Property → [prop2desc] → Descriptor → [desc2mof] → MOF tokens → [mof2d
 
 ## Quick Start
 
-### 1. Training prop2desc
-
-Create config files and run training:
-
-```yaml
-# config_prop2desc_model.yaml
-model:
-  in_channels: 183        # descriptor dimension
-  timestep: 1000          # diffusion timesteps
-  lr: 1e-4
-  dim: 183
-  dim_mults: [1, 2]
-  condition: numeric      # numeric, binary, class, or None
-  scaler_mode: standard   # standard or minmax
-
-datamodule:
-  batch_size: 64
-  num_workers: 4
-  dataset_cls: csv       # csv, json, or text
-
-trainer:
-  accelerator: gpu
-  devices: 1
-  max_epochs: 100
-  gradient_clip_val: 1.0
-```
+### 1. Create EGMOF instance
 
 ```python
-# train_prop2desc.py
-from egmof.egmof import EGMOF
+from egmof import EGMOF
 
+# Auto-loads pretrained desc2mof + mof2desc using defaults
 egmof = EGMOF(
-    target="target",              # Column name in your CSV (or "co2_working_capacity", etc.)
-    data_path="/path/to/data/",   # Directory containing train.csv, val.csv, test.csv
-    prop2desc_model_config_path="config_prop2desc_model.yaml",
-    prop2desc_training_config_path="config_prop2desc_model.yaml",
+    load_pretrained_modules=True,  # loads desc2mof & mof2desc
+    prop2desc_ckpt_path="path/to/prop2desc.ckpt",
+    prop2desc_config_path="path/to/prop2desc_config.yaml",
+    skmodel_ckpt_dir="path/to/sk_model.pkl",  # Optional: for pred_value
+    accelerator="cuda",
+    devices=1,
 )
-egmof.train()
-# Checkpoint saved automatically by Lightning Trainer
+
+# Or disable auto-loading, then call setup() manually
+egmof = EGMOF(load_pretrained_modules=False)
+egmof.setup()  # loads desc2mof & mof2desc using defaults
+
+# Or manually load specific models
+egmof = EGMOF(load_pretrained_modules=False)
+egmof.load_desc2mof(ckpt_path="...", config_path="...", ...)
+egmof.load_mof2desc(ckpt_path="...", config_path="...", scaler=egmof._desc2mof_scaler)
 ```
 
-**Expected data format** (`train.csv`, `val.csv`, `test.csv`):
-```csv
-target,feature_1,feature_2,...,feature_183
-150.5,0.12,0.34,...,0.89
-```
+### 2. Train models
 
-- `target`: Column name for your property (e.g., `co2_working_capacity`, `target`, etc.)
-- **Descriptor columns**: Must match exactly the 183 features in `src/egmof/data/descriptor_name.json`
-
-CSV 파일들을 `data_path` 디렉토리에 넣으세요:
-```
-/path/to/data/
-├── train.csv
-├── val.csv
-└── test.csv
-```
-
-### 2. Generation with prop2desc checkpoint
+**Tip:** With `load_pretrained_modules=True`, scaler is already loaded. `train_desc2mof` and `train_mof2desc` will reuse it automatically.
 
 ```python
-from egmof.egmof import EGMOF
-
-egmof = EGMOF(
-
-    prop2desc_model_config_path="config_prop2desc_model.yaml",
-    overrides={"model.ckpt_path": "/path/to/prop2desc.ckpt"},
-    skmodel_mean_std_dir = 'config/h2uptake/18463.yaml'
+# Train prop2desc
+egmof.train_prop2desc(
+    data_path="/path/to/data/",
+    target_property="target",
+    prop2desc_config_path="config/prop2desc_model_config.yaml",
 )
 
-# Load models
-egmof.load()
+# Train desc2mof (will reuse scaler if already loaded)
+egmof.train_desc2mof(
+    accelerator="gpu",
+    devices=1,
+    max_epochs=200,
+)
 
-# Generate MOFs for target property = 150.0
+# Train mof2desc (will reuse scaler from desc2mof)
+egmof.train_mof2desc(
+    accelerator="gpu",
+    devices=1,
+    max_epochs=500,
+)
+```
+
+### 3. Generate MOFs
+
+```python
 results = egmof.generate(
     num_samples=100,
-    target=150.0,
-    output_type="df",
-    topk=5,           # beam search width
-    temperature=1.0,
-    wmse_target=0.5,   # WMSE threshold for filtering
-)
-# results: DataFrame with columns [filename, wmse, pred_value (optional)]
-# pred_value column only exists if skmodel_ckpt_dir or skmodel_mean_std_dir is provided
-```
-
-### 3. Full Generation Pipeline
-
-**Default paths**: All desc2mof and mof2desc paths are set to default values:
-- `desc2mof_ckpt_dir`: `checkpoints/desc2mof/desc2mof_best.ckpt`
-- `desc2mof_config_path`: `config/desc2mof_training_config.yaml`
-- `desc2mof_mean_dir`: `src/egmof/desc2mof/data/mean_all.csv`
-- `desc2mof_std_dir`: `src/egmof/desc2mof/data/std_all.csv`
-- `desc2mof_feature_name_dir`: `src/egmof/desc2mof/data/feature_name.txt`
-- `mof2desc_ckpt_dir`: `checkpoints/mof2desc/mof2desc_best.ckpt`
-- `mof2desc_config_path`: `config/mof2desc_training_config.yaml`
-
-If checkpoints don't exist, `egmof.load()` will raise an error with download URL.
-
-**Pre-configured yaml files** with feature_importances:
-- `config/h2uptake/`: H2 uptake models (1000, 2200, 5000, 10000, 18463)
-- `config/various_dataset/`: Various gas uptake models (CO2, CH4, N2, etc.)
-
-```python
-# Minimal usage (uses all default paths)
-egmof = EGMOF(
-    prop2desc_model_config_path="config_prop2desc_model.yaml",
-    overrides={"model.ckpt_path": "/path/to/prop2desc.ckpt"},
-)
-
-egmof.load()  # Raises error if default checkpoints not found
-
-# Override default paths if needed
-egmof = EGMOF(
-    prop2desc_model_config_path="config_prop2desc_model.yaml",
-    overrides={"model.ckpt_path": "/path/to/prop2desc.ckpt"},
-    desc2mof_ckpt_dir="/path/to/desc2mof.ckpt",
-    mof2desc_ckpt_dir="/path/to/mof2desc.ckpt",
-    skmodel_ckpt_dir="/path/to/sk_model.pickle",      # Optional: for pred_value column
-    skmodel_mean_std_dir="/path/to/scaler.yaml",      # Optional: for feature_importances
-)
-
-# Without sklearn model (no pred_value column)
-egmof = EGMOF(
-    prop2desc_model_config_path="config_prop2desc_model.yaml",
-    skmodel_mean_std_dir="/path/to/scaler.yaml",  # Loads feature_importances from yaml
-)
-
-egmof.load()
-results = egmof.generate(
-    num_samples=100,
-    target=150.0,
-    output_type="df",
+    target_value=150.0,  # target property value
 )
 ```
 
 ---
 
-## Training desc2mof
+## Default Paths
 
-**desc2mof training is NOT supported through EGMOF class.** Use the standalone script:
+| Model | Default Path |
+|-------|--------------|
+| desc2mof checkpoint | `checkpoints/desc2mof/desc2mof_best.ckpt` |
+| desc2mof config | `config/desc2mof_training_config.yaml` |
+| desc2mof mean | `src/egmof/desc2mof/data/mean_all.csv` |
+| desc2mof std | `src/egmof/desc2mof/data/std_all.csv` |
+| desc2mof feature names | `src/egmof/desc2mof/data/feature_name.txt` |
+| mof2desc checkpoint | `checkpoints/mof2desc/mof2desc_best.ckpt` |
+| mof2desc config | `config/mof2desc_training_config.yaml` |
 
-```bash
-python -m egmof.desc2mof.pretrain \
-    --config /path/to/desc2mof_config.yaml \
-    --accelerator gpu \
-    --devices 2
+---
+
+## Sklearn Model (Optional)
+
+For `pred_value` column in generate output, load sklearn model:
+
+```python
+egmof = EGMOF(
+    skmodel_ckpt_dir="path/to/sk_model.pkl",
+    prop2desc_config_path="path/to/config.yaml",  # contains feature_importances & scaler
+)
 ```
+
+**Requirements in prop2desc_config:**
+- `feature_importances`: list of weights for WMSE calculation
+- `scaler_value`: {mean, std, target_mean, target_std} for descriptor normalization
+
+If sklearn model not loaded:
+- `wmse` column: still available if `feature_importances` in config
+- `pred_value` column: not available
+
+---
+
+## Training Config Files
+
+Example config files are in `config/`:
+- `prop2desc_model_config.yaml` - prop2desc model configuration
+- `prop2desc_training_config.yaml` - prop2desc training configuration
+- `desc2mof_training_config.yaml` - desc2mof training configuration
+- `mof2desc_training_config.yaml` - mof2desc training configuration
+
+**Pre-configured property configs:**
+- `config/h2uptake/` - H2 uptake models (1000, 2200, 5000, 10000, 18463)
+- `config/various_dataset/` - Various gas uptake models (CO2, CH4, N2, etc.)
+
+---
+
+## Data Format
+
+Expected CSV format for training data (`train.csv`, `val.csv`, `test.csv`):
+```csv
+target,feature_1,feature_2,...,feature_183
+150.5,0.12,0.34,...,0.89
+```
+
+- `target`: Column name for your property
+- **Descriptor columns**: Must match exactly the 183 features in `src/egmof/data/descriptor_name.json`
 
 ---
 
@@ -177,32 +151,47 @@ python -m egmof.desc2mof.pretrain \
 
 ```python
 EGMOF(
-    target: str,                              # Target property name
-    data_path: str | Path,                    # Path to training data
-    prop2desc_model_config_path: Optional,    # Model config YAML
-    prop2desc_training_config_path: Optional, # Training config YAML
-    overrides: Optional[Dict],                 # Config overrides
-    # desc2mof (defaults set automatically)
-    desc2mof_ckpt_dir: Optional,               # Default: checkpoints/desc2mof/desc2mof_best.ckpt
-    desc2mof_config_path: Optional,            # Default: config/desc2mof_training_config.yaml
-    desc2mof_mean_dir: Optional,               # Default: src/egmof/desc2mof/data/mean_all.csv
-    desc2mof_std_dir: Optional,                # Default: src/egmof/desc2mof/data/std_all.csv
-    desc2mof_feature_name_dir: Optional,       # Default: src/egmof/desc2mof/data/feature_name.txt
-    desc2mof_feature_size: int = 183,
-    # mof2desc (defaults set automatically)
-    mof2desc_ckpt_dir: Optional,               # Default: checkpoints/mof2desc/mof2desc_best.ckpt
-    mof2desc_config_path: Optional,             # Default: config/mof2desc_training_config.yaml
-    # sklearn model (optional)
-    skmodel_ckpt_dir: Optional,
-    skmodel_mean_std_dir: Optional,
+    prop2desc_ckpt_path: Optional[str | Path] = None,
+    prop2desc_config_path: Optional[str | Path] = None,
+    skmodel_ckpt_dir: Optional[str | Path] = None,  # sklearn model for pred_value
+    load_pretrained_modules: bool = True,
+    accelerator: Literal["cpu", "cuda"] = "cpu",
+    devices: int | List[int] = 1,
 )
 ```
 
 ### Methods
 
-- `train()`: Train prop2desc model
-- `load()`: Load all model checkpoints  
-- `generate(num_samples, target, ...)`: Generate MOFs from target property
+| Method | Description |
+|--------|-------------|
+| `load_prop2desc(ckpt_path, config_path)` | Load prop2desc checkpoint |
+| `load_desc2mof(ckpt_path, config_path, mean_path, std_path, feature_name_path)` | Load desc2mof checkpoint + scaler |
+| `load_mof2desc(ckpt_path, config_path, scaler)` | Load mof2desc checkpoint (reuses desc2mof scaler) |
+| `train_prop2desc(data_path, target_property, config_path)` | Train prop2desc model |
+| `train_desc2mof(config_path, train_data_dir, ...)` | Train desc2mof model |
+| `train_mof2desc(config_path, train_data_dir, ...)` | Train mof2desc model |
+| `generate(num_samples, target_value, ...)` | Generate MOFs from target property |
+
+### generate() Parameters
+
+```python
+egmof.generate(
+    num_samples=100,
+    target_value=150.0,
+    output_type="df",       # "df" or "token"
+    topk=5,                # beam search width
+    temperature=1.0,
+    wmse_target=0.5,      # WMSE threshold for filtering
+    batch_size=256,
+    num_workers=0,
+    save_descriptor_path=None,
+)
+```
+
+**Output columns** (DataFrame):
+- `filename`: Generated MOF name
+- `wmse`: Weighted MSE (if `_sk_feature_importances` available)
+- `pred_value`: Predicted property (if sklearn model loaded)
 
 ---
 
@@ -210,7 +199,11 @@ EGMOF(
 
 ```
 src/egmof/
-├── egmof.py              # Main orchestrator
+├── egmof.py              # Main orchestrator (simple wrapper)
+├── egmof_backup.py       # Original implementation
+├── train.py              # train_desc2mof, train_mof2desc, dataloader creators
+├── utils.py              # create_scaler, load_config, load_feature_names
+├── generate.py           # run_desc2mof, run_mof2desc_and_select, cal_wmse, sk_predict
 ├── data/                 # LightningDataModule + datasets
 ├── descriptors/          # RAC + Zeo++ calculator
 ├── desc2mof/             # Descriptor → MOF (Transformer)
@@ -218,3 +211,10 @@ src/egmof/
 ├── prop2desc/            # Property → Descriptor (Diffusion)
 └── builder/              # MOF building blocks
 ```
+
+### Module Details
+
+- **`egmof.py`**: Entry point - loads models, calls training functions
+- **`train.py`**: Core training logic - creates dataloaders, sets up Trainer, runs training
+- **`utils.py`**: Helper functions - scaler creation, config loading, feature name loading
+- **`generate.py`**: Generation helpers - run_desc2mof, run_mof2desc_and_select, cal_wmse, sk_predict
