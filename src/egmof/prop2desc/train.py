@@ -143,7 +143,7 @@ def _build_trainer(cfg: Any, log_dir: str | Path | None, ckpt_dir: str | Path | 
     return Trainer(**trainer_cfg)
 
 
-def train_prop2desc(
+def run_train_prop2desc(
     config_path: str | Path | Any,
     data_path: str | Path,
     target: str | None,
@@ -184,7 +184,7 @@ def main() -> None:
     parser.add_argument("--test_only", action="store_true", help="Run test instead of training.")
     args = parser.parse_args()
 
-    train_prop2desc(
+    run_train_prop2desc(
         config_path=Path(args.config),
         data_path=Path(args.data_path),
         target=args.target,
