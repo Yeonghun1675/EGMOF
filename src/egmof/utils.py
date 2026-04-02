@@ -1,7 +1,17 @@
+import os
+
 import numpy as np
 import pandas as pd
+import yaml
 from pathlib import Path
-from .desc2mof import Scaler
+
+from . import __root_dir__
+from .desc2mof import __desc2mof_dir__, Scaler
+
+
+DEFAULT_DESC2MOF_FEATURE_NAME = os.path.join(
+    __desc2mof_dir__, "data", "feature_name.txt"
+)
 
 
 def create_scaler(
@@ -59,3 +69,30 @@ def load_config(config_path: str | Path) -> dict:
 
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
+
+
+def _load_sk_scaler(config_path: str | Path) -> tuple[Scaler, list[float] | None]:
+    """Load scaler and feature_importances from config (YAML/JSON)."""
+    path = str(config_path)
+    if path.endswith(".json"):
+        import json
+
+        with open(path, "r") as f:
+            yaml_data = json.load(f)
+    elif path.endswith(".yaml"):
+        with open(path, "r") as f:
+            yaml_data = yaml.safe_load(f)
+    else:
+        raise ValueError(f"Unsupported config format: {path}")
+
+    feature_importances = yaml_data.get("feature_importances", None)
+    scaler_dict = yaml_data.get("scaler_value", yaml_data)
+
+    scaler = Scaler(
+        scaler_dict["mean"],
+        scaler_dict["std"],
+        scaler_dict["target_mean"],
+        scaler_dict["target_std"],
+    )
+
+    return scaler, feature_importances
