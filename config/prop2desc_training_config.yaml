@@ -1,8 +1,41 @@
-trainer:
-  max_epochs: 50
-  accelerator: auto
-  devices: auto
-  precision: 32
-  log_every_n_steps: 50
-
 seed: 42
+
+logger:
+  project: "EGMOF"
+  exp_name: null
+  log_dir: './logs'
+
+model:
+  in_channels: 96
+  out_channels: null
+  dim: 183
+  dim_mults: [1, 2]
+  timestep: 1000
+  condition: numeric
+  num_classes: null
+  cond_dim: null
+  seed: 0
+  lr: 0.0003
+  scaler_mode: standard
+  scaler_value: null
+
+datamodule:
+  path: 'your_dataset_path'
+  # target: 'your_target'
+  task: 'your_task'
+  dataset_cls: json
+  batch_size: 64
+  num_workers: 16
+
+trainer:
+  accelerator: 'auto'
+  devices: 'auto'
+  max_epochs: 2000
+  precision: 16
+  per_gpu_batchsize: null
+  num_nodes: 1
+  val_check_interval: 1.0
+
+test_only: false
+resume_from: null
+ckpt_path: null

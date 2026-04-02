@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 
 EGMOF_old/
+logs/
 test*
 *.ckpt
 xtb-dist

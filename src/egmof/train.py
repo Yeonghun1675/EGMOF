@@ -11,7 +11,7 @@ from .desc2mof import Scaler, Desc2MOF as Desc2MOFModel
 from .mof2desc import MOF2Desc as MOF2DescModel
 from .mof2desc.model.dataset import CSVDataset as MOF2DescCSVDataset
 from .desc2mof.dataset import CSVDataset as Desc2MOFCSVDataset
-from .egmof import DEFAULT_DESC2MOF_FEATURE_NAME
+from .constants import DEFAULT_DESC2MOF_FEATURE_NAME
 
 
 def create_desc2mof_dataloaders(
