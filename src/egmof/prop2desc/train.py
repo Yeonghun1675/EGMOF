@@ -11,6 +11,7 @@ from omegaconf import OmegaConf
 
 from egmof.data import Datamodule
 from egmof.data.dataset import CSVDataset, JsonSplitDataset, TextSplitDataset
+from egmof.descriptors.get_all_descriptors import get_all_descriptors
 
 from .model import Prop2Desc
 from ..constants import DEFAULT_PROP2DESC_CONFIG
@@ -30,6 +31,25 @@ def _dataset_cls_from_name(name: str) -> DatasetType:
     raise ValueError(f"Unknown dataset_cls: {name}. Use one of [csv, text, json].")
 
 
+def _ensure_total_csv(data_path: str | Path) -> None:
+    data_dir = Path(data_path).resolve()
+    total_csv_path = data_dir / "total.csv"
+    if total_csv_path.exists():
+        return
+
+    cif_dir = data_dir / "cifs"
+    if not cif_dir.is_dir():
+        raise ValueError(
+            f"{total_csv_path} does not exist and CIF directory was not found at {cif_dir}."
+        )
+
+    get_all_descriptors(
+        cif_dir=str(cif_dir),
+        output_path=str(total_csv_path),
+        work_dir=str(data_dir / ".descriptor_work"),
+    )
+
+
 def _build_datamodule(cfg: Any, data_path: Optional[str | Path], task: Optional[str | None]) -> Datamodule:
     dm_cfg = cfg.datamodule
     dataset_cls = _dataset_cls_from_name(dm_cfg.dataset_cls)
@@ -38,6 +58,8 @@ def _build_datamodule(cfg: Any, data_path: Optional[str | Path], task: Optional[
         dm_cfg.data_path = data_path
     if task:
         dm_cfg.task = task
+
+    _ensure_total_csv(dm_cfg.data_path)
 
     return Datamodule(
         path=dm_cfg.data_path,
@@ -48,7 +70,7 @@ def _build_datamodule(cfg: Any, data_path: Optional[str | Path], task: Optional[
         target=task,
     )
 
-# TODO: check the name that if it is not in DEFULAT_PROP2DESC_TRAINING_CONFIG.yaml
+
 def _build_model(cfg: Any, scaler_value: dict[str, Any] | None) -> Prop2Desc:
     model_cfg = cfg.model
     if scaler_value:
