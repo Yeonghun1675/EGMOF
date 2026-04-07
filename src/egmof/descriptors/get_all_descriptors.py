@@ -295,6 +295,10 @@ def get_all_descriptors(
         warnings.warn("No CIF files produced valid descriptors")
         return pd.DataFrame()
 
+    if use_zeopp:
+        n_zeo = len(all_sa)
+        print(f"[OK] Zeo++ descriptors calculated for {n_zeo}/{len(cif_files)} files")
+
     final_df = pd.concat(rac_dfs, ignore_index=True)
 
     if use_zeopp:
@@ -318,7 +322,6 @@ def get_all_descriptors(
                     float(all_res.get(cif_stem, {}).get("di", np.nan)),
                     float(all_res.get(cif_stem, {}).get("df", np.nan)),
                     float(all_res.get(cif_stem, {}).get("dif", np.nan)),
-                    cif_name,
                 ]
             )
             rows.append(merged)
@@ -331,7 +334,6 @@ def get_all_descriptors(
             "di",
             "df",
             "dif",
-            "filename",
         ]
         result = pd.DataFrame(rows, columns=cols)  # type: ignore[arg-type]
     else:

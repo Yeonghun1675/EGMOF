@@ -20,6 +20,15 @@ from tqdm.auto import tqdm
 
 from egmof import mof2desc
 
+from .utils import (
+    _require_ckpt,
+    download_desc2mof,
+    download_mof2desc,
+    download_prop2desc,
+    download_rf,
+    download_all,
+)
+
 from .prop2desc import (
     Prop2Desc,
     run_train_prop2desc,
@@ -110,10 +119,24 @@ class EGMOF:
     def _load_sk_model(self):
         """Load sklearn model and/or scaler with feature importances."""
         if self.skmodel_ckpt_dir:
+            skmodel_path = _require_ckpt(
+                Path(self.skmodel_ckpt_dir).name,
+                Path(self.skmodel_ckpt_dir).parent,
+            )
             import joblib
 
-            self.sk_model = joblib.load(self.skmodel_ckpt_dir)
+            self.sk_model = joblib.load(skmodel_path)
             self._sk_feature_importances = self.sk_model.feature_importances_.tolist()
+        else:
+            print(
+                "WARNING: skmodel not provided. Guided Decoding (WMSE calculation) will be skipped.\n\n"
+                "To download sklearn model:\n"
+                "  from egmof import download_rf\n"
+                "  download_rf()\n"
+                f"See: {ZENODO_RECORD}\n\n"
+                "Or use prop2desc_config_path containing 'feature_importances' for WMSE.\n"
+                
+            )
 
         if self.prop2desc_config_path:
             scaler, fi_from_yaml = _load_sk_scaler(self.prop2desc_config_path)
@@ -140,6 +163,21 @@ class EGMOF:
         )
 
     def load_prop2desc(self, ckpt_path: str | Path, config_path: str | Path) -> None:
+        ckpt_path = _require_ckpt(
+            Path(ckpt_path).name,
+            Path(ckpt_path).parent,
+        )
+        config_path = Path(config_path)
+        if not config_path.exists():
+            raise FileNotFoundError(
+                f"prop2desc config not found: {config_path}\n"
+                f"Expected: {config_path}\n\n"
+                f"To download:\n"
+                f"  from egmof import download_prop2desc\n"
+                f"  download_prop2desc()\n\n"
+                f"See: {ZENODO_RECORD}"
+            )
+
         if self.prop2desc is not None:
             return
         self.prop2desc = Prop2Desc.load(
@@ -163,6 +201,31 @@ class EGMOF:
             std_path: Path to std CSV for scaler
             feature_name_path: Path to feature name text file
         """
+        ckpt_path = _require_ckpt(
+            Path(ckpt_path).name,
+            Path(ckpt_path).parent,
+        )
+        config_path = Path(config_path)
+        mean_path = Path(mean_path)
+        std_path = Path(std_path)
+        feature_name_path = Path(feature_name_path)
+
+        for path, name in [
+            (config_path, "desc2mof config"),
+            (mean_path, "desc2mof mean"),
+            (std_path, "desc2mof std"),
+            (feature_name_path, "feature name"),
+        ]:
+            if not path.exists():
+                raise FileNotFoundError(
+                    f"{name} not found: {path}\n"
+                    f"Expected: {path}\n\n"
+                    f"To download:\n"
+                    f"  from egmof import download_desc2mof\n"
+                    f"  download_desc2mof()\n\n"
+                    f"See: {ZENODO_RECORD}"
+                )
+
         # Load config
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
@@ -206,6 +269,21 @@ class EGMOF:
             config_path: Path to mof2desc config YAML
             scaler: Scaler for descriptor normalization (can use desc2mof's scaler)
         """
+        ckpt_path = _require_ckpt(
+            Path(ckpt_path).name,
+            Path(ckpt_path).parent,
+        )
+        config_path = Path(config_path)
+        if not config_path.exists():
+            raise FileNotFoundError(
+                f"mof2desc config not found: {config_path}\n"
+                f"Expected: {config_path}\n\n"
+                f"To download:\n"
+                f"  from egmof import download_mof2desc\n"
+                f"  download_mof2desc()\n\n"
+                f"See: {ZENODO_RECORD}"
+            )
+
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
 
@@ -423,7 +501,7 @@ class EGMOF:
         if weights is None:
             print(
                 "Warning: _sk_feature_importances not found. "
-                "WMSE calculation will be skipped."
+                "Guided Decoding (WMSE calculation) will be skipped."
             )
 
         desc2mof_scaler = getattr(self, "_desc2mof_scaler", None)

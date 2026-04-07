@@ -20,6 +20,44 @@ Property → [prop2desc] → Descriptor → [desc2mof] → MOF tokens → [mof2d
 
 ## Quick Start
 
+### 0. Download Checkpoints (if needed)
+
+```python
+from egmof import (
+    download_all,
+    download_desc2mof,
+    download_mof2desc,
+    download_prop2desc,
+    download_rf,
+)
+
+# Download all checkpoints (~11 GB)
+download_all()
+
+# Or download individually
+download_desc2mof()    # 79 MB
+download_mof2desc()     # 29 MB
+download_prop2desc()   # 3.0 GB (zip extracted)
+download_rf()          # 3.5 GB (zip extracted)
+```
+
+If checkpoints are missing, EGMOF will show an error with download instructions:
+```
+FileNotFoundError: desc2mof_best.ckpt not found at checkpoints/desc2mof/desc2mof_best.ckpt
+
+To download:
+  from egmof import download_desc2mof
+  download_desc2mof()
+
+Or download all:
+  from egmof import download_all
+  download_all()
+
+See: https://zenodo.org/records/19362907
+```
+
+---
+
 ### 1. Create EGMOF instance
 
 ```python
@@ -80,6 +118,19 @@ results = egmof.generate(
     target_value=150.0,  # target property value
 )
 ```
+
+---
+
+## Checkpoint Download
+
+All checkpoints are available at Zenodo: https://zenodo.org/records/19362907
+
+| File | Size |
+|------|------|
+| desc2mof_best.ckpt | 79 MB |
+| mof2desc_best.ckpt | 29 MB |
+| prop2desc_ckpt.zip | 3.0 GB |
+| rf_ckpt.zip | 3.5 GB |
 
 ---
 
