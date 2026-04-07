@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any, Type
+from typing import Any, Type, Optional
 
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
@@ -11,15 +11,17 @@ from omegaconf import OmegaConf
 
 from egmof.data import Datamodule
 from egmof.data.dataset import CSVDataset, JsonSplitDataset, TextSplitDataset
+from egmof.descriptors.get_all_descriptors import get_all_descriptors
 
 from .model import Prop2Desc
+from ..constants import DEFAULT_PROP2DESC_CONFIG
 
 
 DatasetType = Type[CSVDataset | TextSplitDataset | JsonSplitDataset]
 
 
 def _dataset_cls_from_name(name: str) -> DatasetType:
-    name = (name or "csv").lower()
+    name = (name or "json").lower()
     if name == "csv":
         return CSVDataset
     if name in {"text", "txt"}:
@@ -29,33 +31,63 @@ def _dataset_cls_from_name(name: str) -> DatasetType:
     raise ValueError(f"Unknown dataset_cls: {name}. Use one of [csv, text, json].")
 
 
-def _build_datamodule(cfg: Any, data_path: str | Path, target: str | None) -> Datamodule:
-    dm_cfg = cfg.get("datamodule", {})
-    dataset_cls = _dataset_cls_from_name(dm_cfg.get("dataset_cls", "csv"))
+def _ensure_total_csv(data_path: str | Path) -> None:
+    data_dir = Path(data_path).resolve()
+    total_csv_path = data_dir / "total.csv"
+    if total_csv_path.exists():
+        return
+
+    cif_dir = data_dir / "cifs"
+    if not cif_dir.is_dir():
+        raise ValueError(
+            f"{total_csv_path} does not exist and CIF directory was not found at {cif_dir}."
+        )
+
+    get_all_descriptors(
+        cif_dir=str(cif_dir),
+        output_path=str(total_csv_path),
+        work_dir=str(data_dir / ".descriptor_work"),
+    )
+
+
+def _build_datamodule(cfg: Any, data_path: Optional[str | Path], task: Optional[str | None]) -> Datamodule:
+    dm_cfg = cfg.datamodule
+    dataset_cls = _dataset_cls_from_name(dm_cfg.dataset_cls)
+    
+    if data_path:
+        dm_cfg.data_path = data_path
+    if task:
+        dm_cfg.task = task
+
+    _ensure_total_csv(dm_cfg.data_path)
+
     return Datamodule(
-        path=data_path,
-        batch_size=int(dm_cfg.get("batch_size", 64)),
-        num_workers=int(dm_cfg.get("num_workers", 4)),
+        path=dm_cfg.data_path,
+        batch_size=int(dm_cfg.batch_size),
+        num_workers=int(dm_cfg.num_workers),
         dataset_cls=dataset_cls,
-        task=dm_cfg.get("task", None),
-        target=target,
+        task=dm_cfg.task,
+        target=task,
     )
 
 
 def _build_model(cfg: Any, scaler_value: dict[str, Any] | None) -> Prop2Desc:
-    model_cfg = cfg.get("model", {})
+    model_cfg = cfg.model
+    if scaler_value:
+        model_cfg.scaler_value = scaler_value
+
     return Prop2Desc(
-        in_channels=int(model_cfg["in_channels"]),
-        timestep=int(model_cfg.get("timestep", 1000)),
-        lr=float(model_cfg.get("lr", 1e-4)),
-        dim=int(model_cfg.get("dim", model_cfg["in_channels"])),
-        dim_mults=list(model_cfg.get("dim_mults", [1, 2])),
-        condition=model_cfg.get("condition", None),
-        out_channels=model_cfg.get("out_channels", None),
-        num_classes=int(model_cfg.get("num_classes", 0)),
-        cond_dim=int(model_cfg.get("cond_dim", 0) or 0),
-        scaler_mode=model_cfg.get("scaler_mode", "standard"),
-        scaler_value=scaler_value,
+        in_channels=int(model_cfg.in_channels),
+        timestep=int(model_cfg.timestep),
+        lr=float(model_cfg.lr),
+        dim=int(model_cfg.dim),
+        dim_mults=list(model_cfg.dim_mults),
+        condition=model_cfg.condition,
+        out_channels=model_cfg.out_channels,
+        num_classes=model_cfg.num_classes,
+        cond_dim=model_cfg.cond_dim,
+        scaler_mode=model_cfg.scaler_mode,
+        scaler_value=model_cfg.scaler_value,
     )
 
 
@@ -73,47 +105,30 @@ def _resolve_scaler_value(cfg: Any, datamodule: Datamodule) -> dict[str, Any] | 
     raise ValueError(f"Unknown scaler_mode: {scaler_mode}")
 
 
-def _build_loggers(cfg: Any, log_dir: str | Path | None) -> list[Any]:
-    logger_cfg = cfg.get("logger", {})
-    tensorboard_cfg = logger_cfg.get("tensorboard", {})
-    wandb_cfg = logger_cfg.get("wandb", {})
+def _build_loggers(cfg: Any, log_dir: str | Path | None = None) -> list[Any]:
+    logger_cfg = cfg.logger
+    if log_dir:
+        logger_cfg.log_dir = log_dir
 
-    base_log_dir = str(log_dir) if log_dir is not None else "logs"
-    logger_list: list[Any] = [
-        TensorBoardLogger(
-            save_dir=tensorboard_cfg.get("save_dir", base_log_dir),
-            name=tensorboard_cfg.get("name", "tensorboard"),
-            version=tensorboard_cfg.get("version", None),
-        )
-    ]
+    if not logger_cfg.exp_name:
+        logger_cfg.exp_name = cfg.datamodule.task
 
-    enable_wandb = bool(wandb_cfg.get("enabled", True))
-    if enable_wandb:
-        wandb_kwargs = {
-            "name": wandb_cfg.get("name", None),
-            "project": wandb_cfg.get("project", "egmof"),
-            "save_dir": wandb_cfg.get("save_dir", base_log_dir),
-            "offline": bool(wandb_cfg.get("offline", False)),
-            "log_model": wandb_cfg.get("log_model", False),
-        }
-        if group := wandb_cfg.get("group", None):
-            wandb_kwargs["group"] = group
-        if tags := wandb_cfg.get("tags", None):
-            wandb_kwargs["tags"] = list(tags)
+    logger_tb = TensorBoardLogger(
+        save_dir = logger_cfg.log_dir,
+        name = logger_cfg.exp_name
+    )
 
-        try:
-            logger_list.append(WandbLogger(**wandb_kwargs))
-        except ModuleNotFoundError as exc:
-            raise ModuleNotFoundError(
-                "WandbLogger is enabled but `wandb` is not installed. Install wandb or set logger.wandb.enabled=false."
-            ) from exc
+    logger_wandb = WandbLogger(
+        project = logger_cfg.project,
+        name = f"{logger_cfg.exp_name}_version_{logger_tb.version}",
+        save_dir = logger_cfg.log_dir,
+    )
 
-    return logger_list
+    return [logger_tb, logger_wandb]
 
 
 def _build_trainer(cfg: Any, log_dir: str | Path | None, ckpt_dir: str | Path | None) -> Trainer:
-    trainer_cfg = OmegaConf.to_container(cfg.get("trainer", {}), resolve=True)
-    trainer_cfg = dict(trainer_cfg)
+    trainer_cfg = cfg.trainer
 
     callbacks = []
     if ckpt_dir is not None:
@@ -132,29 +147,44 @@ def _build_trainer(cfg: Any, log_dir: str | Path | None, ckpt_dir: str | Path | 
     existing_callbacks = trainer_cfg.pop("callbacks", None)
     if existing_callbacks:
         callbacks.extend(existing_callbacks)
-    if callbacks:
-        trainer_cfg["callbacks"] = callbacks
 
-    trainer_cfg["logger"] = _build_loggers(cfg, log_dir)
+    loggers = _build_loggers(cfg, log_dir)
 
-    if log_dir is not None and "default_root_dir" not in trainer_cfg:
-        trainer_cfg["default_root_dir"] = str(log_dir)
-
-    return Trainer(**trainer_cfg)
+    return Trainer(
+        accelerator=trainer_cfg.accelerator,
+        devices=trainer_cfg.devices,
+        num_nodes=trainer_cfg.num_nodes,
+        precision=trainer_cfg.precision,
+        benchmark=True,
+        max_epochs=trainer_cfg.max_epochs,
+        callbacks=callbacks,
+        logger=loggers,
+        val_check_interval=trainer_cfg.val_check_interval,
+    )
 
 
 def run_train_prop2desc(
     config_path: str | Path | Any,
     data_path: str | Path,
-    target: str | None,
+    task: str | None,
     log_dir: str | Path | None = None,
     ckpt_dir: str | Path | None = None,
     test_only: bool = False,
+    accelerator: str | None = None,
+    devices: str | None = None,
 ) -> Prop2Desc:
-    cfg = OmegaConf.load(config_path) if isinstance(config_path, str | Path) else config_path
-    seed_everything(int(cfg.get("seed", 42)), workers=True)
 
-    datamodule = _build_datamodule(cfg, data_path=data_path, target=target)
+    config_path = config_path if isinstance(config_path, str | Path) else DEFAULT_PROP2DESC_CONFIG
+
+    cfg = OmegaConf.load(config_path)
+    seed_everything(int(cfg.seed), workers=True)
+
+    if accelerator:
+        cfg.trainer.accelerator = accelerator
+    if devices:
+        cfg.trainer.devices = devices    
+
+    datamodule = _build_datamodule(cfg, data_path=data_path, task=task)
     datamodule.setup("test" if test_only else "fit")
 
     if not test_only:

@@ -19,7 +19,7 @@ class CSVDataset(Dataset):
     direc: str | Path
     split: str
     task: Optional[str] = None
-    target: Optional[str] = None
+    target: Optional[str] = "target"
         
     def __post_init__(self):
         self.direc = Path(self.direc).resolve()
@@ -101,7 +101,7 @@ class TextSplitDataset(Dataset):
     direc: str | Path
     split: str
     task: Optional[str] = None
-    target: Optional[str] = None
+    target: Optional[str] = "target"
     total_csv: str = 'total.csv'
         
     def __post_init__(self):

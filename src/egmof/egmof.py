@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import os
-from typing import Any, Dict, List, Literal, Optional, Union
 from pathlib import Path
+from typing import List, Literal, Optional, Union
 
-import joblib
+# import joblib
 import numpy as np
 import pandas as pd
-import selfies
-import torch
-import torch.nn.functional as F
 import yaml
 import lightning as pl
 from omegaconf import OmegaConf
@@ -36,20 +32,19 @@ from .prop2desc import (
 
 from .desc2mof import (
     Desc2MOF as Desc2MOFModel,
-    MOFGenDataset,
     Scaler,
-    MOF_ENCODE_DICT,
-    MOF_DECODE_DICT,
-    SOS_TOKEN,
-    EOS_TOKEN,
-    PAD_TOKEN,
-    SEP_TOKEN,
-    CN_IDS,
-    decode_token2mof,
-    __desc2mof_dir__,
 )
 
-from . import __root_dir__
+from .constants import (
+    DEFAULT_DESC2MOF_CKPT,
+    DEFAULT_DESC2MOF_CONFIG,
+    DEFAULT_DESC2MOF_FEATURE_NAME,
+    DEFAULT_DESC2MOF_MEAN,
+    DEFAULT_DESC2MOF_STD,
+    DEFAULT_MOF2DESC_CKPT,
+    DEFAULT_MOF2DESC_CONFIG,
+)
+
 from .data import Datamodule
 from .data.dataset import CSVDataset, TextSplitDataset, JsonSplitDataset
 from .train import train_desc2mof, train_mof2desc
@@ -135,7 +130,6 @@ class EGMOF:
                 "  download_rf()\n"
                 f"See: {ZENODO_RECORD}\n\n"
                 "Or use prop2desc_config_path containing 'feature_importances' for WMSE.\n"
-                
             )
 
         if self.prop2desc_config_path:
@@ -300,13 +294,13 @@ class EGMOF:
     def train(
         self,
         data_path: Optional[str | Path] = None,
-        target_property: Optional[str] = None,
+        task: Optional[str] = None,
         prop2desc_config_path: Optional[str | Path] = None,
         desc2mof_config_path: Optional[str | Path] = None,
         mof2desc_config_path: Optional[str | Path] = None,
     ):
         if data_path and self.prop2desc is None:
-            self.train_prop2desc(data_path, target_property, prop2desc_config_path)
+            self.train_prop2desc(data_path, task, prop2desc_config_path)
         if self.desc2mof is None:
             self.train_desc2mof(desc2mof_config_path)
         if self.mof2desc is None:
@@ -314,15 +308,17 @@ class EGMOF:
 
     def train_prop2desc(
         self,
-        data_path: str | Path,
-        target_property: Optional[str] = None,
+        data_path: str | Path = None,
+        task: Optional[str] = None,
         prop2desc_config_path: Optional[str | Path] = None,
     ) -> Prop2Desc:
         """train prop2desc model"""
         self.prop2desc = run_train_prop2desc(
             config_path=prop2desc_config_path,
             data_path=data_path,
-            target=target_property,
+            task=task,
+            accelerator=self.accelerator,
+            devices=self.devices,
         )
         return self.prop2desc
 
