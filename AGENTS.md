@@ -7,7 +7,7 @@
 EGMOF (Efficient Generative Model for Metal-Organic Frameworks) is a Python project using PyTorch Lightning.
 
 - **Python**: >=3.12 | **Package**: `src/egmof/`
-- **Key deps**: PyTorch, Lightning, ASE, pandas, numpy, omegaconf
+- **Key deps**: PyTorch, Lightning, ASE, RDKit, molSimplify, selfies, omegaconf
 
 ---
 
@@ -41,7 +41,6 @@ python -m egmof.desc2mof.pretrain --config /path/to/config.yaml --accelerator gp
 # EGMOF main usage (via Python)
 python -c "
 from egmof import EGMOF
-
 egmof = EGMOF()  # auto-loads desc2mof, mof2desc
 egmof.generate(num_samples=100, target_value=150.0)
 "
@@ -72,8 +71,6 @@ from tqdm.auto import tqdm
 # Local
 from .data import Datamodule
 from .prop2desc import Prop2Desc
-from .train import train_desc2mof, train_mof2desc
-from .generate import run_desc2mof, run_mof2desc_and_select
 ```
 
 ### Type Hints (Python 3.12+)
@@ -122,9 +119,6 @@ try:
     x = data["key"]
 except:  # DON'T
     pass
-
-# Bad - DON'T silently fail
-x = data["key"]  # KeyError will crash elsewhere
 ```
 
 ---
@@ -163,22 +157,15 @@ src/egmof/
 ├── egmof.py              # Main orchestrator (EGMOF class)
 ├── train.py              # train_desc2mof, train_mof2desc, dataloader creators
 ├── utils.py              # create_scaler, load_config, load_feature_names
-├── generate.py           # run_desc2mof, run_mof2desc_and_select, cal_wmse, sk_predict
+├── generate.py           # run_desc2mof, run_mof2desc_and_select, cal_wmse
 ├── egmof_backup.py       # Original implementation (reference)
 ├── data/                 # LightningDataModule + datasets
 ├── descriptors/          # RAC + Zeo++ calculator, tests
-├── desc2mof/            # Descriptor → MOF model
-├── mof2desc/            # MOF → Descriptor model
+├── desc2mof/            # Descriptor → MOF model (Transformer)
+├── mof2desc/            # MOF → Descriptor model (validation)
 ├── prop2desc/           # Property → Descriptor diffusion
 └── builder/             # MOF building blocks
 ```
-
-### Module Details
-
-- **`egmof.py`**: Main EGMOF class - `__init__` params, `setup()`, `load_*`, `train_*`, `generate`
-- **`train.py`**: Training helpers - `train_desc2mof`, `train_mof2desc`, `create_*_dataloaders`
-- **`utils.py`**: Utility functions - `create_scaler`, `load_config`, `load_feature_names`, `_load_sk_scaler`
-- **`generate.py`**: Generation helpers - `run_desc2mof`, `run_mof2desc_and_select`, `cal_wmse`, `sk_predict`
 
 ---
 
@@ -187,7 +174,6 @@ OmegaConf/YAML is used throughout:
 ```python
 from omegaconf import OmegaConf
 cfg = OmegaConf.load("config.yaml")
-# Override values
 cfg = OmegaConf.load("config.yaml", overrides={"model.lr": 1e-3})
 ```
 
@@ -198,10 +184,3 @@ cfg = OmegaConf.load("config.yaml", overrides={"model.lr": 1e-3})
 - **Error suppression**: Never use empty catch blocks `except: pass`
 - **Tests**: Never delete failing tests to "make them pass"
 - **Commits**: Never commit unless explicitly requested
-
----
-
-## Development Recommendations
-1. **pytest**: Add `[tool.pytest.ini_options]` to pyproject.toml
-2. **Type checking**: Add `[tool.mypy]` to pyproject.toml
-3. **Linting**: Add `[tool.ruff]` to pyproject.toml

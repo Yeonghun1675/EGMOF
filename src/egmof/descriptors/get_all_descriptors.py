@@ -146,7 +146,7 @@ def cif_to_rac(cif_path: str, work_dir: str) -> pd.DataFrame:
         return pd.DataFrame()
 
     full_names.append("filename")
-    full_descriptors.append(cif_name)
+    full_descriptors.append(cif_stem)
     featurization = dict(zip(full_names, full_descriptors))
     df = pd.DataFrame([featurization])
 
@@ -295,6 +295,10 @@ def get_all_descriptors(
         warnings.warn("No CIF files produced valid descriptors")
         return pd.DataFrame()
 
+    if use_zeopp:
+        n_zeo = len(all_sa)
+        print(f"[OK] Zeo++ descriptors calculated for {n_zeo}/{len(cif_files)} files")
+
     final_df = pd.concat(rac_dfs, ignore_index=True)
 
     if use_zeopp:
@@ -318,7 +322,6 @@ def get_all_descriptors(
                     float(all_res.get(cif_stem, {}).get("di", np.nan)),
                     float(all_res.get(cif_stem, {}).get("df", np.nan)),
                     float(all_res.get(cif_stem, {}).get("dif", np.nan)),
-                    cif_name,
                 ]
             )
             rows.append(merged)
@@ -331,18 +334,36 @@ def get_all_descriptors(
             "di",
             "df",
             "dif",
-            "filename",
         ]
         result = pd.DataFrame(rows, columns=cols)  # type: ignore[arg-type]
     else:
         # RAC only - filename already added by cif_to_rac
         result = final_df
 
+    result = _rename_rac_columns(result)
+
     if output_path:
         result.to_csv(output_path, index=False)
         print(f"[OK] Saved to {output_path}")
 
     return result
+
+
+def _rename_rac_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Rename molSimplify RAC column names to match descriptor_name.json format."""
+    rename_map = {}
+    for col in df.columns:
+        if col.startswith("f-sbu-"):
+            # f-sbu-chi-0 → f-chi-0-all
+            rest = col[len("f-sbu-"):]
+            rename_map[col] = f"f-{rest}-all"
+        elif col.startswith("f-link-"):
+            # f-link-chi-0 → f-lig-chi-0
+            rest = col[len("f-link-"):]
+            rename_map[col] = f"f-lig-{rest}"
+        elif re.match(r"^(D_mc|D_lc|D_func|mc|lc|func)-", col) and not col.endswith("-all"):
+            rename_map[col] = f"{col}-all"
+    return df.rename(columns=rename_map)
 
 
 if __name__ == "__main__":
