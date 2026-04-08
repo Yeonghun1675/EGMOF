@@ -113,11 +113,35 @@ egmof.train_mof2desc(
 ### 3. Generate MOFs
 
 ```python
-results = egmof.generate(
+# Basic generation
+df = egmof.generate(
     num_samples=100,
     target_value=150.0,  # target property value
 )
+
+# Generate + build CIF files in one step
+df = egmof.generate(
+    num_samples=100,
+    target_value=150.0,
+    build_cif=True,
+    cif_dir="./output/cifs",
+    new_bb_dir="./output/new_bbs",  # where novel SELFIES building blocks are saved
+)
+
+# Include descriptors in output
+df = egmof.generate(
+    num_samples=100,
+    target_value=150.0,
+    return_descriptor=True,
+)
 ```
+
+**Output DataFrame columns:**
+- `filename`: Generated MOF name (e.g. `ilc+N431+E173` or SELFIES token for novel BBs)
+- `wmse`: Weighted MSE vs target descriptor (if `feature_importances` in config)
+- `pred_value`: Predicted property (if sklearn model loaded)
+- `cif`: CIF filename saved to `cif_dir` (only when `build_cif=True`)
+- 183 descriptor columns (only when `return_descriptor=True`)
 
 ---
 
@@ -227,22 +251,30 @@ EGMOF(
 
 ```python
 egmof.generate(
-    num_samples=100,
-    target_value=150.0,
-    output_type="df",       # "df" or "token"
-    topk=5,                # beam search width
-    temperature=1.0,
-    wmse_target=0.5,      # WMSE threshold for filtering
-    batch_size=256,
-    num_workers=0,
-    save_descriptor_path=None,
+    num_samples: int = 100,
+    target_value: float | int | None = None,
+    topk: int = 5,                  # beam search width
+    temperature: float = 1.0,
+    wmse_target: float = 0.5,       # WMSE threshold for filtering
+    batch_size: int = 256,
+    num_workers: int = 0,
+    return_descriptor: bool = False, # include 183 descriptor columns in output
+    build_cif: bool = False,         # run make_bb + build_MOF after generation
+    cif_dir: str | Path | None = None,      # where to save CIF files
+    new_bb_dir: str | Path | None = None,   # where to save novel SELFIES BBs
 )
 ```
 
 **Output columns** (DataFrame):
-- `filename`: Generated MOF name
-- `wmse`: Weighted MSE (if `_sk_feature_importances` available)
-- `pred_value`: Predicted property (if sklearn model loaded)
+- `filename`: Generated MOF name (`topology+node+edge` format, SELFIES for novel edges)
+- `wmse`: Weighted MSE vs target descriptor (requires `feature_importances` in config)
+- `pred_value`: Predicted property value (requires sklearn model)
+- `cif`: CIF filename written to `cif_dir` (only when `build_cif=True`)
+- 183 descriptor columns named per `descriptor_name.json` (only when `return_descriptor=True`)
+
+**Notes:**
+- `build_cif=True` automatically detects novel SELFIES building blocks (tokens containing `[Lr]`), creates them via `make_bb` (xtb optimization), then assembles full MOF CIFs via pormake
+- MOFs that fail geometry checks (cell < 4.5 Å) or xtb optimization are skipped with `cif=None`
 
 ---
 

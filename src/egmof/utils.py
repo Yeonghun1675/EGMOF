@@ -60,10 +60,6 @@ def _download_with_progress(url: str, dest: Path, md5: str | None = None) -> Non
 DEFAULT_DESC2MOF_FEATURE_NAME = os.path.join(
     __desc2mof_dir__, "data", "feature_name.txt"
 )
-=======
-import yaml
-from .desc2mof import Scaler
->>>>>>> origin/main
 
 
 def create_scaler(
@@ -258,5 +254,3 @@ def download_all(dest_dir: str | Path | None = None) -> dict[str, Path]:
         "prop2desc": download_prop2desc(dest_dir / "checkpoints"),
         "rf": download_rf(dest_dir / "checkpoints"),
     }
-=======
->>>>>>> origin/main

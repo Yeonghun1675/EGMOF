@@ -101,6 +101,8 @@ def run_mof2desc_and_select(
     batch_size: int = 256,
     num_workers: int = 0,
     device: str = "cuda",
+    return_descriptor: bool = False,
+    feature_names: list[str] | None = None,
 ):
     """Run mof2desc, compute wmse, and select best MOFs."""
     from .desc2mof import SEP_TOKEN
@@ -181,5 +183,12 @@ def run_mof2desc_and_select(
         final_mask = wmse_mask & any_valid_mask
     else:
         final_mask = any_valid_mask
+
+    if return_descriptor:
+        mof2desc_preds_reshaped = mof2desc_preds_decoded.reshape(-1, topk, feature_size)
+        best_descriptors = mof2desc_preds_reshaped[row_idx, min_indices]
+        desc_cols = feature_names if feature_names is not None else list(range(feature_size))
+        desc_df = pd.DataFrame(best_descriptors, columns=desc_cols, index=result_df.index)
+        result_df = pd.concat([result_df, desc_df], axis=1)
 
     return result_df[final_mask], result_df[~final_mask], log_list
