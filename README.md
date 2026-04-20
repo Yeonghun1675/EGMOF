@@ -20,7 +20,15 @@ Property → [prop2desc] → Descriptor → [desc2mof] → MOF tokens → [mof2d
 
 ## Quick Start
 
-### 0. Download Checkpoints (if needed)
+### 0. Installation
+
+```bash
+git clone https://github.com/Yeonghun1675/EGMOF.git
+cd EGMOF
+uv sync
+```
+
+### 1. Download Checkpoints (if needed)
 
 ```python
 from egmof import (
@@ -58,7 +66,7 @@ See: https://zenodo.org/records/19362907
 
 ---
 
-### 1. Create EGMOF instance
+### 2. Create EGMOF instance
 
 ```python
 from egmof import EGMOF
@@ -83,7 +91,7 @@ egmof.load_desc2mof(ckpt_path="...", config_path="...", ...)
 egmof.load_mof2desc(ckpt_path="...", config_path="...", scaler=egmof._desc2mof_scaler)
 ```
 
-### 2. Train models
+### 3. Train models
 
 **Tip:** With `load_pretrained_modules=True`, scaler is already loaded. `train_desc2mof` and `train_mof2desc` will reuse it automatically.
 
@@ -110,7 +118,7 @@ egmof.train_mof2desc(
 )
 ```
 
-### 3. Generate MOFs
+### 4. Generate MOFs
 
 ```python
 # Basic generation
@@ -122,7 +130,7 @@ df = egmof.generate(
 # Generate + build CIF files in one step
 df = egmof.generate(
     num_samples=100,
-    target_value=150.0,
+    target_value=10.0,
     build_cif=True,
     cif_dir="./output/cifs",
     new_bb_dir="./output/new_bbs",  # where novel SELFIES building blocks are saved
@@ -131,7 +139,7 @@ df = egmof.generate(
 # Include descriptors in output
 df = egmof.generate(
     num_samples=100,
-    target_value=150.0,
+    target_value=100.0,
     return_descriptor=True,
 )
 ```
@@ -149,26 +157,26 @@ df = egmof.generate(
 
 All checkpoints are available at Zenodo: https://zenodo.org/records/19362907
 
-| File | Size |
-|------|------|
-| desc2mof_best.ckpt | 79 MB |
-| mof2desc_best.ckpt | 29 MB |
+| File               | Size   |
+| ------------------ | ------ |
+| desc2mof_best.ckpt | 79 MB  |
+| mof2desc_best.ckpt | 29 MB  |
 | prop2desc_ckpt.zip | 3.0 GB |
-| rf_ckpt.zip | 3.5 GB |
+| rf_ckpt.zip        | 3.5 GB |
 
 ---
 
 ## Default Paths
 
-| Model | Default Path |
-|-------|--------------|
-| desc2mof checkpoint | `checkpoints/desc2mof/desc2mof_best.ckpt` |
-| desc2mof config | `config/desc2mof_training_config.yaml` |
-| desc2mof mean | `src/egmof/desc2mof/data/mean_all.csv` |
-| desc2mof std | `src/egmof/desc2mof/data/std_all.csv` |
+| Model                  | Default Path                               |
+| ---------------------- | ------------------------------------------ |
+| desc2mof checkpoint    | `checkpoints/desc2mof/desc2mof_best.ckpt`  |
+| desc2mof config        | `config/desc2mof_training_config.yaml`     |
+| desc2mof mean          | `src/egmof/desc2mof/data/mean_all.csv`     |
+| desc2mof std           | `src/egmof/desc2mof/data/std_all.csv`      |
 | desc2mof feature names | `src/egmof/desc2mof/data/feature_name.txt` |
-| mof2desc checkpoint | `checkpoints/mof2desc/mof2desc_best.ckpt` |
-| mof2desc config | `config/mof2desc_training_config.yaml` |
+| mof2desc checkpoint    | `checkpoints/mof2desc/mof2desc_best.ckpt`  |
+| mof2desc config        | `config/mof2desc_training_config.yaml`     |
 
 ---
 
@@ -237,15 +245,15 @@ EGMOF(
 
 ### Methods
 
-| Method | Description |
-|--------|-------------|
-| `load_prop2desc(ckpt_path, config_path)` | Load prop2desc checkpoint |
-| `load_desc2mof(ckpt_path, config_path, mean_path, std_path, feature_name_path)` | Load desc2mof checkpoint + scaler |
-| `load_mof2desc(ckpt_path, config_path, scaler)` | Load mof2desc checkpoint (reuses desc2mof scaler) |
-| `train_prop2desc(data_path, target_property, config_path)` | Train prop2desc model |
-| `train_desc2mof(config_path, train_data_dir, ...)` | Train desc2mof model |
-| `train_mof2desc(config_path, train_data_dir, ...)` | Train mof2desc model |
-| `generate(num_samples, target_value, ...)` | Generate MOFs from target property |
+| Method                                                                          | Description                                       |
+| ------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `load_prop2desc(ckpt_path, config_path)`                                        | Load prop2desc checkpoint                         |
+| `load_desc2mof(ckpt_path, config_path, mean_path, std_path, feature_name_path)` | Load desc2mof checkpoint + scaler                 |
+| `load_mof2desc(ckpt_path, config_path, scaler)`                                 | Load mof2desc checkpoint (reuses desc2mof scaler) |
+| `train_prop2desc(data_path, target_property, config_path)`                      | Train prop2desc model                             |
+| `train_desc2mof(config_path, train_data_dir, ...)`                              | Train desc2mof model                              |
+| `train_mof2desc(config_path, train_data_dir, ...)`                              | Train mof2desc model                              |
+| `generate(num_samples, target_value, ...)`                                      | Generate MOFs from target property                |
 
 ### generate() Parameters
 
