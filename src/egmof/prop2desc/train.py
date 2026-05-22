@@ -217,7 +217,7 @@ def main() -> None:
     run_train_prop2desc(
         config_path=Path(args.config),
         data_path=Path(args.data_path),
-        target=args.target,
+        task=args.target,
         log_dir=Path(args.log_dir) if args.log_dir else None,
         ckpt_dir=Path(args.ckpt_dir) if args.ckpt_dir else None,
         test_only=args.test_only,
