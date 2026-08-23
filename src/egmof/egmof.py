@@ -568,7 +568,7 @@ class EGMOF:
         cif_column = []
 
         for filename in df["filename"]:
-            # Resolve SELFIES tokens → Custom_E/N
+            # Resolve SELFIES tokens → Gen_E/N
             tokens = filename.split("+")
             resolved_tokens = []
             failed = False

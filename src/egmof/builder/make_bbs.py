@@ -50,15 +50,15 @@ def ensure_xtb_installed(force: bool = False) -> str:
 
 
 def get_counters(run_dir: str) -> tuple[int, int]:
-    """Parse existing Custom_E*.xyz / Custom_N*.xyz files to find next counter values."""
+    """Parse existing Gen_E*.xyz / Gen_N*.xyz files to find next counter values."""
     e_counter, n_counter = 0, 0
     if not os.path.isdir(run_dir):
         return e_counter, n_counter
     for fname in os.listdir(run_dir):
-        m = re.match(r"Custom_E(\d+)\.xyz", fname)
+        m = re.match(r"Gen_E(\d+)\.xyz", fname)
         if m:
             e_counter = max(e_counter, int(m.group(1)))
-        m = re.match(r"Custom_N(\d+)\.xyz", fname)
+        m = re.match(r"Gen_N(\d+)\.xyz", fname)
         if m:
             n_counter = max(n_counter, int(m.group(1)))
     return e_counter, n_counter
@@ -82,7 +82,7 @@ def make_bb(
     else:
         bb_type, num = "N", n_counter + 1
 
-    out_name = f"Custom_{bb_type}{num}.xyz"
+    out_name = f"Gen_{bb_type}{num}.xyz"
     save_path = os.path.join(run_dir, out_name)
 
     if os.path.exists(save_path):

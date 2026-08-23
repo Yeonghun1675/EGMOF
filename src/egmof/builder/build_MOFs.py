@@ -64,17 +64,17 @@ def name_to_mof(
     _node_bb_names = []
     _edge_bb_names = []
     for bb in tokens[1:]:
-        if bb.startswith("N") or bb.startswith("Custom_N"):
+        if bb.startswith("N") or bb.startswith("Gen_N"):
             _node_bb_names.append(bb)
 
-        if bb.startswith("E") or bb.startswith("Custom_E"):
+        if bb.startswith("E") or bb.startswith("Gen_E"):
             _edge_bb_names.append(bb)
 
     _topology = db.get_topo(_topo_name)
     new_bb_db = pm.Database(bb_dir=new_bb_dir)
 
     def get_bb_with_fallback(name: str):
-        if name.startswith("Custom"):
+        if name.startswith("Gen_"):
             return new_bb_db.get_bb(f"{name}.xyz")
         return db.get_bb(f"{name}.xyz")
 
