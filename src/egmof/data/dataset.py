@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pandas as pd
 from pathlib import Path
 import json
@@ -150,15 +152,16 @@ class TextSplitDataset(Dataset):
         return x_batch.to(torch.float32), y_batch.to(torch.float32)
 
     def get_mean_and_std(self):
-        batch_mean = [float(self.data[key].mean()) for key in self.descriptors]
-        batch_std = [float(self.data[key].std()) for key in self.descriptors]
+        split_data = self.data[self.data["filename"].isin(self.structures)]
+        batch_mean = [float(split_data[key].mean()) for key in self.descriptors]
+        batch_std = [float(split_data[key].std()) for key in self.descriptors]
 
         if self.target is None:
             target_mean = 0
             target_std = 1
         else:
-            target_mean = float(self.data[self.target].mean())
-            target_std = float(self.data[self.target].std())
+            target_mean = float(split_data[self.target].mean())
+            target_std = float(split_data[self.target].std())
         
         return {
             'mean': batch_mean, 
@@ -168,8 +171,9 @@ class TextSplitDataset(Dataset):
         }
 
     def get_min_and_max(self):
-        max = self.data.max()
-        min = self.data.min()
+        split_data = self.data[self.data["filename"].isin(self.structures)]
+        max = split_data.max()
+        min = split_data.min()
 
         batch_min = [float(min[key]) for key in self.descriptors]
         batch_max = [float(max[key]) for key in self.descriptors]
@@ -247,8 +251,9 @@ class JsonSplitDataset(Dataset):
         return x_batch.to(torch.float32), y_batch.to(torch.float32)
 
     def get_mean_and_std(self):
-        batch_mean = [float(self.data[key].mean()) for key in self.descriptors]
-        batch_std = [float(self.data[key].std()) for key in self.descriptors]
+        split_data = self.data[self.data[self.filename].isin(self.structures)]
+        batch_mean = [float(split_data[key].mean()) for key in self.descriptors]
+        batch_std = [float(split_data[key].std()) for key in self.descriptors]
 
         if self.target is None:
             target_mean = 0
@@ -265,8 +270,9 @@ class JsonSplitDataset(Dataset):
         }
 
     def get_min_and_max(self):
-        max = self.data.max()
-        min = self.data.min()
+        split_data = self.data[self.data[self.filename].isin(self.structures)]
+        max = split_data.max()
+        min = split_data.min()
 
         batch_min = [float(min[key]) for key in self.descriptors]
         batch_max = [float(max[key]) for key in self.descriptors]
@@ -275,8 +281,8 @@ class JsonSplitDataset(Dataset):
             target_min = 0.
             target_max = 1.
         else:
-            target_min = float(min[self.target])
-            target_max = float(max[self.target])
+            target_min = float(self.targets.min())
+            target_max = float(self.targets.max())
 
         return {
             'min': batch_min,
